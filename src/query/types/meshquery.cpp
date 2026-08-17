@@ -37,7 +37,12 @@ int meshquery::computeSmoothingOp() {
         return -1;
     }
     // Compute the t
-    t = std::max(1.0, 5.0 - std::log10(double(M->getNumActiveV()))) * M->getSquaredMeanE();
+    double scale_factor = 5.0 - std::log10(double(M->getNumActiveV()));
+    t = std::max(1.0, scale_factor) * M->getSquaredMeanE();
+    // t = 1e-2 * M->getSquaredMeanE();
+    std::cout << "Smoothing timestep: " << t << std::endl;
+    std::cout << "Mean Squared Edge Length: " << M->getSquaredMeanE() << std::endl;
+    std::cout << "Scaling Factor: " << scale_factor << std::endl;
     Eigen::SparseMatrix<double> LHS = Eigen::SparseMatrix<double>(A.asDiagonal()) + t * L;
     AtL_inv.analyzePattern(LHS);
     AtL_inv.factorize(LHS);

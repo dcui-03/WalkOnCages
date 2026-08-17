@@ -260,9 +260,9 @@ void updateMesh(const std::vector<Eigen::Vector3d>& new_pos) {
 void setDebugColorsVisible(bool visible) {
     debugColorsVisible = visible;
     if (psColorQ) psColorQ->setEnabled(debugColorsVisible);
-    if (psGradRQ) psGradRQ->setEnabled(debugColorsVisible);
-    if (psGradGQ) psGradGQ->setEnabled(debugColorsVisible);
-    if (psGradBQ) psGradBQ->setEnabled(debugColorsVisible);
+    // if (psGradRQ) psGradRQ->setEnabled(debugColorsVisible);
+    // if (psGradGQ) psGradGQ->setEnabled(debugColorsVisible);
+    // if (psGradBQ) psGradBQ->setEnabled(debugColorsVisible);
     if (psCageColorQ) psCageColorQ->setEnabled(debugColorsVisible);
     return;
 }
@@ -313,10 +313,13 @@ void updateCageDeformerColors(bool recompute = true) {
         if (CD->colorGradientsPolyscopeFormat(gradR, gradG, gradB) == 1) {
             psGradRQ = psMesh->addVertexVectorQuantity("Color Gradient R", gradR);
             psGradRQ->setVectorColor(glm::vec3{1.0f, 0.0f, 0.0f});
+            psGradRQ->setEnabled(false);
             psGradGQ = psMesh->addVertexVectorQuantity("Color Gradient G", gradG);
             psGradGQ->setVectorColor(glm::vec3{0.0f, 1.0f, 0.0f});
+            psGradGQ->setEnabled(false);
             psGradBQ = psMesh->addVertexVectorQuantity("Color Gradient B", gradB);
             psGradBQ->setVectorColor(glm::vec3{0.0f, 0.0f, 1.0f});
+            psGradBQ->setEnabled(false);
         } else {
             std::cout << "Failed to compute debug color gradients." << std::endl;
         }
@@ -350,8 +353,8 @@ void updateCurvenet(bool conn = false) {
             psEditableCN = polyscope::registerCurveNetwork("Curvenet", psCN_P, psCN_E);
             psEditableCN->setColor({0.0f, 0.0f, 1.0f});
             psEditableCN->setMaterial("flat");
-            psEditableCN->setTransparency(0.65);
-            psEditableCN->setRadius(0.003);
+            psEditableCN->setTransparency(0.5);
+            psEditableCN->setRadius(0.001);
             psEditableCN->setEnabled(true);
         }
 
@@ -360,7 +363,7 @@ void updateCurvenet(bool conn = false) {
             psTangentsCN->setColor({0.5f, 0.55f, 0.15f});
             psTangentsCN->setMaterial("flat");
             psTangentsCN->setTransparency(0.8);
-            psTangentsCN->setRadius(0.004);
+            psTangentsCN->setRadius(0.002);
             psTangentsCN->setEnabled(true);
         }
 
@@ -376,7 +379,7 @@ void updateCurvenet(bool conn = false) {
             psTangentsPC = polyscope::registerPointCloud("Tangents", psTangents_P);
             psTangentsPC->setPointColor({0.1f, 0.9f, 0.2f});
             psTangentsPC->setMaterial("flat");
-            psTangentsPC->setPointRadius(0.012);
+            psTangentsPC->setPointRadius(0.008);
             psTangentsPC->setEnabled(true);
         }
     } else {
@@ -571,8 +574,8 @@ void myCallback() {
 
     // User parameters
     ImGui::SliderInt("Sampling Param", &samplingParam, 2, 8);
-    ImGui::SliderInt("Num Samples", &num_samples, 5, 50);
-    num_samples = std::clamp(((num_samples + 2) / 5) * 5, 5, 50);
+    ImGui::SliderInt("Num Samples", &num_samples, 5, 75);
+    num_samples = std::clamp(((num_samples + 2) / 5) * 5, 5, 75);
 
     if (ImGui::Button(colorMode ? "Switch to Deformation Mode" : "Switch to Color Mode")) {
         colorMode = !colorMode;

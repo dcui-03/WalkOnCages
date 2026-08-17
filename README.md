@@ -6,6 +6,8 @@ C++ implementation of Stochastic Barycentric Coordinates [de Goes and Desbrun, 2
 
 Completed stochastic harmonic coordinates and updated the visualizer to handle it. As part of this, I completed the closest point code for curvenets. This is a bit rough, though.
 
+NOTE: The smoothing is a bit... spotty, in the sense that the coordinates get smoothed, but as a result of smoothing corodinates, the mesh itself also gets smoothed, which is very much not good...
+
 # Next TODO's
 
 - Add a random sampler for curvenets and polynets. 
