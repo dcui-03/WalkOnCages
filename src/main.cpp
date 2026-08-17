@@ -110,7 +110,8 @@ static polyscope::TransformationGizmo* vertexGizmo = nullptr;
 // Pre-computation
 int samplingParam = 5;    // Curvenet discretization density (alpha)
 int num_samples = 50;     // WoS samples per query point
-float offsetParam = 0.5f; // Surface offset applied to newly-created controls
+int coordType = 0;        // 0 = harmonic, 1 = MVC, 2 = positive MVC
+float offsetParam = 0.05f; // Surface offset applied to newly-created controls
 
 // Discrete curvenet for modeling
 std::unique_ptr<psCurvenet::pscurvenet> psCN = nullptr; // Curvenet that polyscope will use for updates
@@ -457,7 +458,7 @@ void finalizeCageDeformer() {
     CD = std::make_unique<CageDeformer::cagedeformer>();
     CD->applyCage(CD_Cage.get());
     CD->applyQuery(CD_Query.get());
-    int success = CD->computeCoordinates(0, num_samples);
+    int success = CD->computeCoordinates(coordType, num_samples);
     if (success != 1) {
         std::cout << "Failed to compute stochastic barycentric coordinates." << std::endl;
         clearCD();
@@ -577,6 +578,21 @@ void myCallback() {
     ImGui::SliderInt("Num Samples", &num_samples, 5, 75);
     num_samples = std::clamp(((num_samples + 2) / 5) * 5, 5, 75);
 
+    bool isHarmonic = (coordType == 0);
+    if (ImGui::Checkbox("Harmonic", &isHarmonic) && isHarmonic) {
+        coordType = 0;
+    }
+    ImGui::SameLine();
+    bool isMVC = (coordType == 1);
+    if (ImGui::Checkbox("MVC", &isMVC) && isMVC) {
+        coordType = 1;
+    }
+    ImGui::SameLine();
+    bool isPositiveMVC = (coordType == 2);
+    if (ImGui::Checkbox("Positive MVC", &isPositiveMVC) && isPositiveMVC) {
+        coordType = 2;
+    }
+
     if (ImGui::Button(colorMode ? "Switch to Deformation Mode" : "Switch to Color Mode")) {
         colorMode = !colorMode;
     }
@@ -605,7 +621,8 @@ void myCallback() {
     }
 
     ImGuiSection("Create and Edit Splines");
-    ImGui::SliderFloat("Offset", &offsetParam, 0.1f, 1.0f);
+    ImGui::SliderFloat("Offset", &offsetParam, 0.05f, 0.5f);
+    offsetParam = std::clamp(std::round(offsetParam / 0.05f) * 0.05f, 0.05f, 0.5f);
     // CONTROL/SPLINE CREATION
     // Create controls
     if (ImGui::Button(createCtrlMode ? "Stop Creating Controls" : "Create Controls")) {
