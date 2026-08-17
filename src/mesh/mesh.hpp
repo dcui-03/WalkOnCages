@@ -26,31 +26,34 @@ class mesh {
 
         // Project a vertex onto the mesh
         // mesh_utils.cpp
-        // A version which returns the mesh type and el idx separately
-        int computeVProjection(const Eigen::Vector3d& v, Eigen::Vector3d& proj, int& elIdx, bool snap = true, bool fast = true) const;
         // A version which returns a vertProjData object
         vertProjData computeVProjection(const Eigen::Vector3d& v, Eigen::Vector3d& proj, bool snap = true, bool fast = true) const;
         // A generalization of computeVProjection that also computes other data if the caller wants
         int computeVBinding(const Eigen::Vector3d& p, meshBindData& bind, bool snap = true, bool fast = true) const;
-        
+
+        // Recover a point location from stored coordinates
+        int recoverCoords(int elType, int elIdx, const Eigen::VectorXd& coords, Eigen::Vector3d& p, bool fast = true);
+
+        // Evaluate the basis weights of the verts spanning the mesh element a projData sits on
+        int evaluateBasis(const vertProjData& proj, const Eigen::VectorXd& coords, std::vector<std::pair<int, double>>& basis) const;
+        // Compute the mesh laplacian on verts
+        int computeLaplacian(Eigen::SparseMatrix<double>& L);
+        // Compute the lumped mass matrix (as a vector) on verts
+        int computeMass(Eigen::VectorXd& A);
+        // Get verts as a matrix
+        int vertsAsMatrix(Eigen::MatrixXd& Verts);
+
         // Getters
-        Eigen::Vector3d getVPos(int v) const;
         Eigen::Vector3d getNormal(vertProjData projData) const;
         Eigen::Vector3d getNormal(int elType, int elIdx) const;
         Eigen::Vector3d getVNormal(int v) const;
         Eigen::Vector3d getENormal(int e) const;
         Eigen::Vector3d getFNormal(int f) const;
         int getNumActiveV() const;
-        int getNumActiveE() const;
-        int getNumActiveF() const;
-
-        // Recover a point location from stored coordinates
-        int recoverCoords(int elType, int elIdx, const Eigen::VectorXd& coords, Eigen::Vector3d& p, bool fast = true);
 
         // Get mean edge length
         double getMeanE() const;
-        // Get bbox diagonal length
-        double getBBoxDiag() const;
+        double getSquaredMeanE() const;
 
         friend class cutmesh;   // Let cutmesh read its internals :)
 
@@ -63,25 +66,11 @@ class mesh {
         int computeENormal(int e, Eigen::Vector3d& eN, bool weight_fN = true);   // 1 edge
         void computeENormals(bool weight_fN = true);       // All edges
         // weight_fN weights by adjacent face areas
-        double computeVNormalArea(int v, Eigen::Vector3d& vN, bool weight_fN = true);   // 1 vertex
         void computeVNormalsAreas(bool weight_fN = true);       // All vertices
         // Clear all mesh attributes
         bool clearMesh();
         // Create a new vertex but do NOT insert it
-        Vert createVertex(Eigen::Vector3d pos,
-                          Eigen::Vector3d n, 
-                          int label = 0, 
-                          int cornerIdx = -1, 
-                          int ref_Type = -1, 
-                          int ref_Idx = -1, 
-                          Eigen::Vector3d proj = Eigen::Vector3d::Zero(),
-                          Eigen::Matrix3d defGrad = Eigen::Matrix3d::Identity());
-        Vert createVertex(Eigen::Vector3d pos,
-                          Eigen::Vector3d n, 
-                          int label = 0, 
-                          int cornerIdx = -1, 
-                          vertProjData projData = vertProjData({-1, -1}),
-                          vertDeformData defData = vertDeformData({Eigen::Vector3d::Zero(), Eigen::Matrix3d::Identity()}));
+        Vert createVertex(Eigen::Vector3d pos, Eigen::Vector3d n);
         HalfEdge createHalfEdge(bool boundary = false, 
                                     int twin = -1, 
                                     int dest = -1, 
@@ -189,11 +178,14 @@ class mesh {
 
         // GEODESICS
         // Optional default input parameters for traced intersection vertices
-        int traceGeodesic(const Vert& start, 
-                        const Vert& end, 
+        int traceGeodesic(const Vert& start,
+                        const vertProjData& startData,
+                        const Vert& end,
+                        const vertProjData& endData,
                         Eigen::Vector3d prevDirec,
-                        vertProjData prevData, 
+                        vertProjData prevData,
                         std::vector<Vert>& tracedVerts,
+                        std::vector<vertProjData>& tracedProjData,
                         int depth = 0,
                         int max_depth = 5,
                         bool recompute = false,

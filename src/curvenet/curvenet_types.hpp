@@ -8,6 +8,13 @@
 
 namespace Curvenet {
 
+    // Result of a closest-point query against the curve network
+    struct cnBindData {
+        int s = -1;                     // Spline index
+        double t = -1.0;                // Parameter value on that spline
+        Eigen::Vector3d pos;            // Point on the spline at t
+    };
+
     // Projection data onto the corresponding mesh for tangents and handles
     struct projData {
         int elType = -1;
@@ -28,8 +35,6 @@ namespace Curvenet {
         bool active = true;     // For safety, say if the component is active (ignore for now)
         bool sorted = false;    // Safety flag. True when outgoing halfedges are sorted
         int cType = 0;      // Control point type (1 = anchor, 2 = loop, 3 = intersection)
-        // Robustness for future work
-        projData proj;
 
         // Weight, if specified
         bool fixed_w = true;
@@ -49,8 +54,6 @@ namespace Curvenet {
         int next = -1;
         int prev = -1;
         Eigen::Vector3d rest_tan;   // Tangent vector (defined in global coordinates, NOT relative to control)
-        // Robustness for future work
-        projData proj;
 
         bool active = true;     // For safety, say if the component is active (ignore for now)
         

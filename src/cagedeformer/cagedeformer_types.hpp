@@ -16,7 +16,7 @@ namespace CageDeformer {
         double weight;
     }
 
-    struct Query {
+    struct QueryVert {
         std::vector<Sample> samples;
     }
 

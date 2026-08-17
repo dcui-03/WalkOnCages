@@ -4,6 +4,7 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <vector>
+// TODO: HEADER file for whatever HE mesh data struct we use
 
 namespace DECUtils {
     typedef Eigen::Triplet<double> T;

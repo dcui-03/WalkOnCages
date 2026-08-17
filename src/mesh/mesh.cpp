@@ -3,10 +3,7 @@
 #include "../utils/decUtils.hpp"
 #include "../utils/utils.hpp"
 #include <Eigen/Core>
-#include <Eigen/Sparse>
 #include <vector>
-#include <limits>
-#include <queue>
 #include <map>
 #include <algorithm>
 #include <utility>
@@ -50,8 +47,6 @@ bool mesh::initHalfEdgeMesh(const std::vector<Eigen::Vector3d>& V_List, const st
     V.resize(V_List.size());
     for (int v = 0; v < V_List.size(); v++) {
         V[v].pos = V_List[v];
-        V[v].projData.elType = 0;
-        V[v].projData.elIdx = v;
     }
     active_v = V.size();
 
@@ -240,10 +235,6 @@ bool mesh::clearMesh() {
 }
 
 // Getters
-Eigen::Vector3d mesh::getVPos(int v) const {
-    Eigen::Vector3d pos = V[v].pos;
-    return pos;
-}
 Eigen::Vector3d mesh::getNormal(vertProjData projData) const {
     if (projData.elType == 0) {
         return getVNormal(projData.elIdx);
@@ -291,19 +282,8 @@ double mesh::getMeanE() const {
     return meanE;
 }
 
- // Get bbox diagonal
-double mesh::getBBoxDiag() const {
-    return bboxDiag;
-}
-
 int mesh::getNumActiveV() const {
     return active_v;
-}
-int mesh::getNumActiveE() const {
-    return active_e;
-}
-int mesh::getNumActiveF() const {
-    return active_f;
 }
 
 Eigen::VectorXd mesh::computeFaceHeight(int f) const {
@@ -389,29 +369,6 @@ void mesh::computeENormals(bool weight_fN) {
 }
 
 // Function which computes a single vertex's normal/area
-double mesh::computeVNormalArea(int v, Eigen::Vector3d& vN, bool weight_fN) {
-    // Iterate around the adjacent faces
-    std::vector<int> fList = vertAdjFaces(v);
-    vN = Eigen::Vector3d::Zero();
-    double vArea = 0.0;
-    // Iterate over face list and accumulate areas and normals
-    for (int i = 0; i < fList.size(); i++) {
-        int f = fList[i];
-        if (f == -1) {  // Ignore boundary faces
-            continue;
-        }
-        std::vector<int> fVerts = faceAdjHalfEdges(f);
-        double fArea = F[f].fArea/(fVerts.size());
-        if (weight_fN) {
-            vN += fArea * F[f].n;
-        } else {
-            vN += F[f].n;
-        }
-        vArea += fArea;
-    }
-    vN.normalize(); // TODO: Needs safe normalization
-    return vArea;
-}
 // Function which computes ALL vertex normals and areas
 void mesh::computeVNormalsAreas(bool weight_fN) {
     // Reset vertex normals and areas
@@ -475,6 +432,22 @@ void mesh::computeMeanE() {
     }
     meanE /= active_e;
     return;
+}
+
+double mesh::getSquaredMeanE() {
+    meanE = 0.0;
+    if (active_e == 0) {
+        return;
+    }
+    for (int e = 0; e < E.size(); ++e) {
+        if (!E[e].active) {
+            continue;
+        }
+        std::vector<int> eVerts = edgeAdjVerts(e);
+        meanE += (V[eVerts[0]].pos - V[eVerts[1]].pos).squaredNorm();
+    }
+    meanE /= active_e;
+    return meanE;
 }
 
 // Computes the diagonal length of the mesh's AABB
@@ -661,26 +634,10 @@ int mesh::buildBVHNode(const std::vector<int>& faces, int depth) {
 
 
 // Create a new vertex but do NOT insert it
-Vert mesh::createVertex(Eigen::Vector3d pos, Eigen::Vector3d n, int label, int cornerIdx, int ref_Type, int ref_Idx, Eigen::Vector3d proj, Eigen::Matrix3d defGrad) {
+Vert mesh::createVertex(Eigen::Vector3d pos, Eigen::Vector3d n) {
     Vert v;
     v.pos = pos;
     v.n = n;
-    v.label = label;
-    v.corner_idx = cornerIdx;
-    v.projData.elType = ref_Type;
-    v.projData.elIdx = ref_Idx;
-    v.defData.projVector = proj;
-    v.defData.defGrad = defGrad;
-    return v;
-}
-Vert mesh::createVertex(Eigen::Vector3d pos, Eigen::Vector3d n, int label, int cornerIdx, vertProjData projData, vertDeformData defData) {
-    Vert v;
-    v.pos = pos;
-    v.n = n;
-    v.label = label;
-    v.corner_idx = cornerIdx;
-    v.projData = projData;
-    v.defData = defData;
     return v;
 }
 
@@ -703,13 +660,12 @@ Edge mesh::createEdge(int he, Eigen::Vector3d n) {
     e.n = n;
     return e;
 }
-
 bool mesh::copyVertex(int v, Vert& new_vert) {
     if (v < 0 || v > V.size()) {
         return false;
     }
     const Vert& vert = V[v];
-    new_vert = createVertex(vert.pos, vert.n, vert.label, vert.corner_idx, vert.projData, vert.defData);
+    new_vert = createVertex(vert.pos, vert.n);
     return true;
 }
 bool mesh::copyHalfEdge(int he, HalfEdge& new_he) {

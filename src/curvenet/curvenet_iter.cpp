@@ -1,8 +1,6 @@
 #include "curvenet.hpp"
 
-#include "utils/utils.hpp"
 #include <Eigen/Core>
-#include <Eigen/Sparse>
 #include <vector>
 #include <algorithm>
 

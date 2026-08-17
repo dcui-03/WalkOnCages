@@ -3,7 +3,6 @@
 
 #include <Eigen/Core>
 #include <vector>
-#include <array>
 
 // File with basic structs used by mesh class
 
@@ -40,19 +39,10 @@ namespace Mesh {
         Eigen::Matrix3d restFrame = Eigen::Matrix3d::Identity();
     };
 
-    // Data needed if we want to interpolate deformations
+    // Tags which mesh element a point currently sits on (vertex/edge/face)
     struct vertProjData {
-        // Where we landed in the original mesh, if label == 1
         int elType = -1;
         int elIdx = -1;
-    };
-
-    // Data needed if we want to interpolate deformations
-    struct vertDeformData {
-        // Vector from the projected point on the rest mesh to the rest curvenet vert (if label == 1)
-        Eigen::Vector3d projVector = Eigen::Vector3d::Zero();
-        // Deformation gradient eventually computed using Laplacian
-        Eigen::Matrix3d defGrad = Eigen::Matrix3d::Identity();
     };
 
     struct Vert {
@@ -61,13 +51,6 @@ namespace Mesh {
         double vArea = 0.0;   // barycentric dual area. To be computed only when necessary
         int he = -1;   // one outgoing halfedge, or -1 if isolated
         bool active = true;     // For safety, say if the component is active (ignore for now)
-
-        // Attributes for cut mesh
-        int label = 0;  // {0 if original mesh vertex, 1 if projected CN vertex, 2 otherwise}
-        int corner_idx = -1;   // Corresponding dCN HALFEDGE index for cut-mesh (if cut-vertex is associated with a dCN vert or HE)
-        
-        vertProjData projData;
-        vertDeformData defData;
     };
 
     struct HalfEdge {

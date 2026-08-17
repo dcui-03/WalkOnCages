@@ -22,7 +22,4 @@ namespace IO {
         std::vector<std::vector<int>>& F
     );
 
-    bool convertVertsToMatrix(const std::vector<Eigen::Vector3d>& source,
-                              Eigen::MatrixXd& dest);
-
 } // namespace IO

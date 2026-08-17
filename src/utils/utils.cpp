@@ -1,15 +1,16 @@
+#define _USE_MATH_DEFINES
 #include "utils.hpp"
 
 #include <Eigen/Core>
 #include <Eigen/Dense>
-#include <igl/point_mesh_squared_distance.h>
 #include <glm/vec3.hpp>
 #include <limits>
 #include <vector>
+#include <map>
+#include <queue>
 #include <algorithm>
 #include <random>
 #include <cmath>
-#include <iostream>
 
 namespace Utils {
 
@@ -46,50 +47,6 @@ void EigM3toStdV(const Eigen::MatrixXd& mat, std::vector<Eigen::Vector3d>& vec) 
     return;
 }
 
-// Entire mesh conversion routine Eigen to GLM
-void meshConversionEigentoGLM(const std::vector<Eigen::Vector3d>& Eig, std::vector<glm::vec3>& GLM) {
-    GLM.clear();
-    GLM.resize(Eig.size());
-    for (int v = 0; v < Eig.size(); v++) {
-        GLM[v] = eigenToGLM(Eig[v]);
-    }
-    return;
-}
-
-// Entire mesh conversion routine GLM to Eigen
-void meshConversionGLMtoEigen(std::vector<Eigen::Vector3d>& Eig, const std::vector<glm::vec3>& GLM) {
-    Eig.clear();
-    Eig.resize(GLM.size());
-    for (int v = 0; v < GLM.size(); v++) {
-        Eig[v] = glmToEigen(GLM[v]);
-    }
-    return;
-}
-
-// Copy positions and connectivity into a copied container
-void copyPositions(const std::vector<Eigen::Vector3d>& V_old, std::vector<Eigen::Vector3d>& V_new) {
-    V_new.clear();
-    V_new.resize(V_old.size());
-    for (int v = 0; v < V_old.size(); v++) {
-        Eigen::Vector3d new_v = {V_old[v](0), V_old[v](1), V_old[v](2)};
-        V_new[v] = new_v;
-    }
-    return;
-}
-
-void copyConnectivity(const std::vector<std::vector<int>>& T_old, std::vector<std::vector<int>>& T_new) {
-    T_new.clear();
-    T_new.resize(T_old.size());
-    for (int f = 0; f < T_old.size(); f++) {
-        std::vector<int> f_idxs;
-        for (int v = 0; v < T_old[f].size(); v++) {
-            f_idxs.push_back(T_old[f][v]);
-        }
-        T_new[f] = f_idxs;
-    }
-    return;
-}
-
 // SORTING
 void doubleListIdxSort(std::vector<double>& ref_List, std::vector<int>& idx_List) {
     if (ref_List.size() != idx_List.size()) {
@@ -113,18 +70,6 @@ void doubleListIdxSort(std::vector<double>& ref_List, std::vector<int>& idx_List
             break;
         }
     }
-}
-
-// Insert an integer entry in a list between two specified values
-bool insertIdxBetweenPair(std::vector<int>& idxList, int a, int b, int new_idx) {
-    for (int i = 0; i < idxList.size(); ++i) {
-        int j = (i + 1) % idxList.size();
-        if (idxList[i] == a && idxList[j] == b) {
-            idxList.insert(idxList.begin() + j, new_idx);
-            return true;
-        }
-    }
-    return false;
 }
 
 // Flattens an Eigen::Matrix3d into a 9x1 row vector
@@ -324,101 +269,7 @@ double signedAngle(const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, const E
 }
 
 // Find the closest point to a triangle
-Eigen::Vector3d triangleClosestPoint(const std::vector<Eigen::Vector3d> triVerts, const Eigen::Vector3d p) {
-    const double eps = 1e-8;
-    const Eigen::Vector3d& a = triVerts[0];
-    const Eigen::Vector3d& b = triVerts[1];
-    const Eigen::Vector3d& c = triVerts[2];
-
-    const Eigen::Vector3d ab = b - a;
-    const Eigen::Vector3d ac = c - a;
-    const Eigen::Vector3d ap = p - a;
-
-    const double d1 = ab.dot(ap);
-    const double d2 = ac.dot(ap);
-
-    // Vertex region outside A
-    if (d1 <= 0.0 && d2 <= 0.0) {
-        return a;
-    }
-
-    const Eigen::Vector3d bp = p - b;
-    const double d3 = ab.dot(bp);
-    const double d4 = ac.dot(bp);
-
-    // Vertex region outside B
-    if (d3 >= 0.0 && d4 <= d3) {
-        return b;
-    }
-
-    // Edge region AB
-    const double vc = d1 * d4 - d3 * d2;
-    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
-        const double denom = d1 - d3;
-        if (std::abs(denom) <= eps) {
-            return Utils::closestPointOnSegment3D(p, a, b, true);
-        }
-
-        const double t = d1 / denom;
-        return a + t * ab;
-    }
-
-    const Eigen::Vector3d cp = p - c;
-    const double d5 = ab.dot(cp);
-    const double d6 = ac.dot(cp);
-
-    // Vertex region outside C
-    if (d6 >= 0.0 && d5 <= d6) {
-        return c;
-    }
-
-    // Edge region AC
-    const double vb = d5 * d2 - d1 * d6;
-    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
-        const double denom = d2 - d6;
-        if (std::abs(denom) <= eps) {
-            return Utils::closestPointOnSegment3D(p, a, c, true);
-        }
-        const double t = d2 / denom;
-        return a + t * ac;
-    }
-
-    // Edge region BC
-    const double va = d3 * d6 - d5 * d4;
-    if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
-        const double denom = (d4 - d3) + (d5 - d6);
-        if (std::abs(denom) <= eps) {
-            return Utils::closestPointOnSegment3D(p, b, c, true);
-        }
-        const double t = (d4 - d3) / denom;
-        return b + t * (c - b);
-    }
-
-    // Inside face region
-    const double denom = va + vb + vc;
-    if (std::abs(denom) <= eps) {
-        // Degenerate triangle fallback: closest point among three edges.
-        Eigen::Vector3d pab = Utils::closestPointOnSegment3D(p, a, b, true);
-        Eigen::Vector3d pac = Utils::closestPointOnSegment3D(p, a, c, true);
-        Eigen::Vector3d pbc = Utils::closestPointOnSegment3D(p, b, c, true);
-
-        double dab = (p - pab).squaredNorm();
-        double dac = (p - pac).squaredNorm();
-        double dbc = (p - pbc).squaredNorm();
-
-        if (dab <= dac && dab <= dbc) return pab;
-        if (dac <= dab && dac <= dbc) return pac;
-        return pbc;
-    }
-
-    const double invDenom = 1.0 / denom;
-    const double vBary = vb * invDenom;
-    const double wBary = vc * invDenom;
-    return a + vBary * ab + wBary * ac;
-}
-
-// Overload with returned element type
-Eigen::Vector3d triangleClosestPoint(const std::vector<Eigen::Vector3d>& triVerts, const Eigen::Vector3d& p, 
+Eigen::Vector3d triangleClosestPoint(const std::vector<Eigen::Vector3d>& triVerts, const Eigen::Vector3d& p,
                                          int& projType, int& projIdx, double snapTol) {
     const double eps = 1e-8;
     projType = -1;
@@ -641,14 +492,6 @@ int bilinearPatchClosestPoint(const std::vector<Eigen::Vector3d>& patchVerts, co
     return 1;
 }
 
-Eigen::Vector3d bilinearPatchClosestPoint(const std::vector<Eigen::Vector3d>& patchVerts, const Eigen::Vector3d& p, double eps, int max_iter) {
-    double u, v;
-    if (bilinearPatchClosestPoint(patchVerts, p, u, v, eps, max_iter) != -1) {
-        return Eigen::Vector3d::Zero();
-    }
-    return bilinearPatch(patchVerts, u, v);
-}
-
 // Overload with returned element type
 Eigen::Vector3d bilinearPatchClosestPoint(const std::vector<Eigen::Vector3d>& patchVerts, const Eigen::Vector3d& p,
                                               int& projType, int& projIdx, double snapTol, double eps, int max_iter) {
@@ -796,6 +639,19 @@ Eigen::Vector3d bilinearPatch(const std::vector<Eigen::Vector3d>& patchVerts, do
     return (1 - v) * ((1 - u) * patchVerts[0] + u * patchVerts[1]) + v * ((1 - u) * patchVerts[3] + u * patchVerts[2]);
 }
 
+std::vector<std::pair<int, double>> bilinearPatchBasis(const std::vector<int>& patchVertIdxs, double u, double v) {
+    std::vector<std::pair<int, double>> basis;
+    if (patchVertIdxs.size() != 4) {
+        return basis;
+    }
+    // Use the standard bases to recover from u, v
+    basis.push_back({patchVertIdxs[0], (1 - u) * (1 - v)});
+    basis.push_back({patchVertIdxs[1], u * (1 - v)});
+    basis.push_back({patchVertIdxs[2], u * v});
+    basis.push_back({patchVertIdxs[3], (1 - u) * v});
+    return basis;
+}
+
 Eigen::Vector3d polygonClosestPointNewell(const std::vector<Eigen::Vector3d>& polyVerts, const Eigen::Vector3d& p,
                                           const Eigen::Vector3d& polyNormal, int& projType, int& projIdx, double snapTol) {
     projType = -1;
@@ -925,13 +781,6 @@ bool directionAngleInPlane(
     }
 
     return true;
-}
-
-// Returns true if two angular values are effectively the same direction.
-bool anglesCoincident(double a, double b, double eps) {
-    double diff = std::abs(a - b);
-    diff = std::min(diff, 2.0 * M_PI - diff);
-    return diff <= eps;
 }
 
 // Given two unit vectors, compute the rotation from one to the other

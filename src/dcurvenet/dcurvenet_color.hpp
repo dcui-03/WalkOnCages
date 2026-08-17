@@ -2,10 +2,8 @@
 #pragma once
 
 #include <Eigen/Core>
-#include <vector>
-#include <utility>
 
-namespace DCurvenet {
+namespace Polynet {
 
     // Deformation
     struct vertColorData {
@@ -19,4 +17,4 @@ namespace DCurvenet {
 
     struct faceDeformData {
     };
-}   // namespace DCurvenet
+}   // namespace Polynet

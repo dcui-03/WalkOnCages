@@ -1,7 +1,9 @@
+#define _USE_MATH_DEFINES
 #include "curvenet.hpp"
 
 #include "utils/utils.hpp"
 #include "mesh/mesh.hpp"
+#include "dcurvenet/dcurvenet.hpp"
 #include <Eigen/Core>
 #include <cmath>
 #include <array>
@@ -13,8 +15,7 @@
 
 namespace Curvenet {
     // Initialize from an existing list of controls, splines
-    curvenet::curvenet(const std::vector<Eigen::Vector3d>& Controls, const std::vector<Eigen::Vector3d>& Tangents, const std::vector<std::array<int, 4>>& Splines, const Mesh::mesh& M, int alpha): alpha(alpha) {
-        meanE = M.getMeanE();
+    curvenet::curvenet(const std::vector<Eigen::Vector3d>& Controls, const std::vector<Eigen::Vector3d>& Tangents, const std::vector<std::array<int, 4>>& Splines, const Mesh::mesh* M, int alpha): alpha(alpha) {
         for (int c = 0; c < Controls.size(); c++) {
             int new_c = addControl(Controls[c]);
             inputCtoC[c] = new_c;
@@ -27,14 +28,16 @@ namespace Curvenet {
             }
             int c0 = inputCtoC.at(S[0]);
             int c1 = inputCtoC.at(S[3]);
-            std::pair<int, int> he = addSpline(c0, c1, Tangents[S[1]], Tangents[S[2]]);
+            std::pair<int, int> he = addSpline(c0, c1, Tangents[S[1]], Tangents[S[2]], M);
             inputTtoHE[S[1]] = he.first;
             inputTtoHE[S[2]] = he.second;
         }
         // Get projection data
-        ctrlProjDataFromMesh(M);
-        tanProjDataFromMesh(M);
-        sortAdjHEAll();
+        if (M) {
+            ctrlProjDataFromMesh(*M);
+            tanProjDataFromMesh(*M);
+            sortAdjHEAll();
+        }
         assignCtrlTypeAll();
         if (traceCurves() == -1) {
             throw std::runtime_error("Failed to trace curve network.");
@@ -73,29 +76,13 @@ namespace Curvenet {
         }
         return;
     }
-    // Check if all weights are free or not
-    // If all weights are free, then return them all to 1
-    int curvenet::validWeights() {
-        int num_free = 0;
-        int num_fixed = 0;
-        for (int c = 0; c < C.size(); c++) {
-            if (C[c].fixed_w) {
-                num_fixed++;
-            } else {
-                num_free++;
-            }
-        }
-        if (num_fixed < 2) {    // We need at least two constraints, or else we get the null space
-            return -1;
-        }
-        return 1;
-    }
-
     // empty initializer
     curvenet::curvenet() {
         C.clear();
         HE.clear();
         S.clear();
+        vertData.clear();
+        tanData.clear();
     }
 
     // Create new control
@@ -104,15 +91,18 @@ namespace Curvenet {
         C.emplace_back();
         C[c].pos = pos;
         C[c].new_pos = pos;
+        vertData.emplace_back();
         return c;
     }
     // Add a spline to the spline list given indices of the points
-    std::pair<int, int> curvenet::addSpline(int start, int end, Eigen::Vector3d t0, Eigen::Vector3d t1) {
+    std::pair<int, int> curvenet::addSpline(int start, int end, Eigen::Vector3d t0, Eigen::Vector3d t1, const Mesh::mesh* M) {
         // Create 2 new halfedges and a new spline
         int he0 = HE.size();
         int he1 = he0+1;
         HE.emplace_back();
         HE.emplace_back();
+        tanData.emplace_back();
+        tanData.emplace_back();
         int s = S.size();
         S.emplace_back();
 
@@ -130,21 +120,13 @@ namespace Curvenet {
         S[s].he = he0;
         // Determine sampling
         // NOTE: Setting sampling for the estimate to 75 for now
-        S[s].num_samples = computeNumSamples(arclenEst(s, 75));
+        S[s].num_samples = computeNumSamples(arclenEst(s, 75), M);
         // Insert spline into vertex list
         C[start].adjHE.push_back(he0);
         C[end].adjHE.push_back(he1);
         return std::make_pair(he0, he1);
     }
 
-    // Move control
-    int curvenet::editControlPos(int c, Eigen::Vector3d pos) {
-        if (!C[c].active) {
-            return -1;
-        }
-        C[c].new_pos = pos;
-        return c;
-    }
     // Change control normal
     int curvenet::editControlN(int c, Eigen::Vector3d normal) {
         // Catch degenerate cases
@@ -169,12 +151,13 @@ namespace Curvenet {
             Eigen::Vector3d n = m.getNormal(bindData.elType, bindData.elIdx);
             // Copy over data
             editControlN(c, n);
-            C[c].proj.elType = bindData.elType;
-            C[c].proj.elIdx = bindData.elIdx;
-            C[c].proj.coords = bindData.coords;
-            C[c].proj.projVec = bindData.offset;
-            C[c].proj.projFrame = bindData.restFrame;
+            vertData[c].elType = bindData.elType;
+            vertData[c].elIdx = bindData.elIdx;
+            vertData[c].coords = bindData.coords;
+            vertData[c].projVec = bindData.offset;
+            vertData[c].projFrame = bindData.restFrame;
         }
+        setMesh = true;
         return 1;
     }
 
@@ -190,12 +173,13 @@ namespace Curvenet {
                 throw std::runtime_error("curvenet::tanProjDataFromMesh(): invalid bind data");
             }
             // Copy over data
-            HE[he].proj.elType = bindData.elType;
-            HE[he].proj.elIdx = bindData.elIdx;
-            HE[he].proj.coords = bindData.coords;
-            HE[he].proj.projVec = bindData.offset;
-            HE[he].proj.projFrame = bindData.restFrame;
+            tanData[he].elType = bindData.elType;
+            tanData[he].elIdx = bindData.elIdx;
+            tanData[he].coords = bindData.coords;
+            tanData[he].projVec = bindData.offset;
+            tanData[he].projFrame = bindData.restFrame;
         }
+        setMesh = true;
         return 1;
     }
 
@@ -243,6 +227,9 @@ namespace Curvenet {
         return 1;   // success
     }
     int curvenet::sortAdjHEAll() {
+        if (!setMesh) {
+            return -1;
+        }
         for (int c = 0; c < C.size(); c++) {
             if (C[c].active && !C[c].sorted) {
                 if (sortAdjHE(c) == -1) {
@@ -402,8 +389,84 @@ namespace Curvenet {
         if (adjHE[1] == back_he) {
             return adjHE[0];
         }
-        // The halfedge we arrived on does not actually end at this control
-        // according to the control's adjacency list.
+        // The halfedge we arrived on does not actually end at this control according to the control's adjacency list
         return -1;
+    }
+
+    // Controls and tangents as a matrix
+    int curvenet::CTasMatrix(Eigen::MatrixXd& Verts) {
+        Verts.resize(C.size() + HE.size(), 3);
+
+        for (int c = 0; c < C.size(); c++) {
+            Verts.row(c) = C[c].pos.transpose();
+        }
+        for (int t = 0; t < HE.size(); t++) {
+            Verts.row(t) = HE[t].tan.transpose();
+        }
+    }
+
+    // Find the closest point on the curve network to p, via dCN's polyline BVH
+    int curvenet::closestPoint(const Eigen::Vector3d& p, const Polynet::dcurvenet* dCN, cnBindData& bind, bool snap, double snapTol) const {
+        if (dCN == nullptr) {
+            return -1;
+        }
+        if (dCN->closestPoint(p, bind, snap, snapTol) != 1) {
+            return -1;
+        }
+        // Optimize t based on the locally guess
+        bind.t = optimizeT(bind.t, bind.s, p);
+        // Compute the explicit position
+        bind.pos = tSampleBezier(bind.s, bind.t);
+        return 1;
+    }
+
+    // Newton iterations to refine an initial guess t-value to get true closest point
+    double curvenet::optimizeT(double t, int s, const Eigen::Vector3d& p, int max_iter) {
+        t = std::clamp(t, 0.0, 1.0);
+        double curr_t = t;
+        for (int i = 0; i < max_iter, i++) {
+            Eigen::Vector3d B = tSampleBezier(s, t);
+            Eigen::Vector3d B_ = tBezier_first(s, t);
+            Eigen::Vector3d B__ = tBezier_second(s, t);
+            double diff = B - p;
+            double grad = diff.dot(B_);
+            double hessian = B__.squaredNorm() + diff.dot(B__);
+
+            // refine t
+            double dt = grad / hessian;
+            curr_t -= dt;
+            curr_t = std::clamp(curr_t, 0.0, 1.0);
+            if (dt <= 1e-6) {  // convergence check
+                return curr_t;
+            }
+        }
+        return curr_t;
+    }
+
+    // Evaluate basis functions on a spline
+    int curvenet::evaluateBasis(int s, double t, std::vector<std::pair<int, double>>& basis) {
+        if (s < 0 || s >= S.size()) {
+            return -1;
+        }
+        basis.clear();
+        t = std::clamp(t, 0.0, 1.0);
+        int t0 = S[s].he;
+        int c0 = HE[t0].origin;
+        int t1 = HE[t0].twin;
+        int c1 = HE[t1].origin;
+        if (t == 0.0) { // Start of spline
+            basis.push_back({c0, 1.0});
+        } else if (t == 1.0) {  // End of spline
+            basis.push_back({c1, 1.0});
+        } else {    // Somewhere in the middle
+            basis.resize(4);
+            // Fill in with correct bases
+            // NOTE: The interior "tangent" vertices have a global C + HE indexing here...
+            basis[0] = {c0, std::pow(1.0 - t, 3)};
+            basis[1] = {t0 + C.size(), 3.0 * std::pow(1.0 - t, 2) * t};
+            basis[2] = {t1 + C.size(), 3.0 * (1.0 - t) * t * t};
+            basis[3] = {c1, std::pow(t, 3)};
+        }
+        return 1;
     }
 }   // namespace Curvenet

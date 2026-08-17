@@ -1,13 +1,10 @@
+#define _USE_MATH_DEFINES
 #include "mesh.hpp"
 
-#include "../utils/decUtils.hpp"
 #include "../utils/utils.hpp"
 #include <Eigen/Core>
-#include <Eigen/Sparse>
 #include <Eigen/Dense>
 #include <vector>
-#include <limits>
-#include <queue>
 #include <utility>
 #include <algorithm>
 #include <iostream>
@@ -17,11 +14,14 @@
 namespace Mesh {
 
 // Trace a "straightest" geodesic (ish) from the start vert to the end
-int mesh::traceGeodesic(const Vert& start, 
-                  const Vert& end, 
+int mesh::traceGeodesic(const Vert& start,
+                  const vertProjData& startData,
+                  const Vert& end,
+                  const vertProjData& endData,
                   Eigen::Vector3d prevDirec,
-                  vertProjData prevData, 
+                  vertProjData prevData,
                   std::vector<Vert>& tracedVerts,
+                  std::vector<vertProjData>& tracedProjData,
                   int depth,
                   const int max_depth,
                   bool recompute,
@@ -29,33 +29,33 @@ int mesh::traceGeodesic(const Vert& start,
     double eps = 1e-6;
     // First, do some simple tests for termination
     // It's good to have these to catch tiny directional drift
-    if (prevData.elType == end.projData.elType && prevData.elIdx == end.projData.elIdx) {   // The next mesh element is exactly the goal
+    if (prevData.elType == endData.elType && prevData.elIdx == endData.elIdx) {   // The next mesh element is exactly the goal
         return 1;
-    } else if (start.projData.elType == 0 && end.projData.elType == 0) {    // Both are vertices
-        if (vertPairToHE.find(std::make_pair(start.projData.elIdx, end.projData.elIdx)) != vertPairToHE.end()) {
+    } else if (startData.elType == 0 && endData.elType == 0) {    // Both are vertices
+        if (vertPairToHE.find(std::make_pair(startData.elIdx, endData.elIdx)) != vertPairToHE.end()) {
             return 1;
         }
-    } else if (start.projData.elType == 0 && end.projData.elType == 1) {    // Start is vertex, end is edge
+    } else if (startData.elType == 0 && endData.elType == 1) {    // Start is vertex, end is edge
         // Check if either end of the edge is the vertex
-        if (HE[E[end.projData.elIdx].he].dest == start.projData.elIdx || HE[HE[E[end.projData.elIdx].he].twin].dest == start.projData.elIdx) {
+        if (HE[E[endData.elIdx].he].dest == startData.elIdx || HE[HE[E[endData.elIdx].he].twin].dest == startData.elIdx) {
             return 1;
         }
-    } else if (start.projData.elType == 1 && end.projData.elType == 0) {    // Start is edge, end is vertex
+    } else if (startData.elType == 1 && endData.elType == 0) {    // Start is edge, end is vertex
         // Check if either end of the edge is the vertex
-        if (HE[E[start.projData.elIdx].he].dest == end.projData.elIdx || HE[HE[E[start.projData.elIdx].he].twin].dest == end.projData.elIdx) {
+        if (HE[E[startData.elIdx].he].dest == endData.elIdx || HE[HE[E[startData.elIdx].he].twin].dest == endData.elIdx) {
             return 1;
         }
-    } else if (start.projData.elType == 1 && end.projData.elType == 1) {    // Both are on edges
+    } else if (startData.elType == 1 && endData.elType == 1) {    // Both are on edges
         // Check if they share an edge
-        if (start.projData.elIdx == end.projData.elIdx) {
+        if (startData.elIdx == endData.elIdx) {
             return 1;
         }
     }
 
     // Otherwise need to do a face-wise check
     // Find shared faces between start and end, if any
-    std::vector<int> startAdjF = adjFaces(start.projData.elType, start.projData.elIdx);
-    std::vector<int> endAdjF = adjFaces(end.projData.elType, end.projData.elIdx);
+    std::vector<int> startAdjF = adjFaces(startData.elType, startData.elIdx);
+    std::vector<int> endAdjF = adjFaces(endData.elType, endData.elIdx);
     std::vector<int> sharedAdjF;
     for (int i = 0; i < startAdjF.size(); i++) {
         if (startAdjF[i] == -1) {
@@ -102,7 +102,7 @@ int mesh::traceGeodesic(const Vert& start,
     vertProjData nextData;
     Eigen::Vector3d nextDirec;
     prevDirec.normalize();
-    if (recompute && start.projData.elType == 2) {
+    if (recompute && startData.elType == 2) {
         Eigen::Vector3d refDirec = (end.pos - start.pos);
         nextData.elType = prevData.elType;
         nextData.elIdx = prevData.elIdx;
@@ -114,20 +114,20 @@ int mesh::traceGeodesic(const Vert& start,
         }
     } else {
         int success = -1;
-        if (start.projData.elType == 0) {   // We are on a vert
+        if (startData.elType == 0) {   // We are on a vert
             if (prevData.elType == 0) {
-                success = nextEl_VertStart(start.projData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
+                success = nextEl_VertStart(startData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
             } else {
                 // std::cout << "Landed on vertex. Computing next direction" << std::endl;
-                success = nextEl_Vert(start.projData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
+                success = nextEl_Vert(startData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
             }
-        } else if (start.projData.elType == 1) {    // We are on an edge
+        } else if (startData.elType == 1) {    // We are on an edge
             if (prevData.elType == 1) {             // Just started walking
                 // std::cout << "Landed on edge. Computing next direction for prev is edge" << std::endl;
-                success = nextEl_EdgeStart(start.projData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
+                success = nextEl_EdgeStart(startData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
             } else if (prevData.elType == 2) {  // We landed on an edge from a face
                 // std::cout << "Landed on edge. Computing next direction for prev is face" << std::endl;
-                success = nextEl_Edge(start.projData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
+                success = nextEl_Edge(startData.elIdx, prevData, prevDirec, nextDirec, nextData, true);
             } else {
                 std::cout << "Landed on edge. Invalid next direction" << std::endl;
             }
@@ -167,10 +167,12 @@ int mesh::traceGeodesic(const Vert& start,
             next = HE[HE[he].twin].dest;
         }
         // std::cout << "Walking along edge. Next vert found: " << next << std::endl;
-        Vert nextVert = createVertex(V[next].pos, V[next].n, 2, -1, 0, next);
+        Vert nextVert = createVertex(V[next].pos, V[next].n);
+        vertProjData nextVertData({0, next});
         // Recurse
         tracedVerts.push_back(nextVert);
-        return traceGeodesic(nextVert, end, nextDirec, nextData, tracedVerts, depth, max_depth, true, fast);
+        tracedProjData.push_back(nextVertData);
+        return traceGeodesic(nextVert, nextVertData, end, endData, nextDirec, nextData, tracedVerts, tracedProjData, depth, max_depth, true, fast);
     }
 
     // If we reached this point, we are definitely walking on a face
@@ -184,10 +186,11 @@ int mesh::traceGeodesic(const Vert& start,
     }
     std::cout << "Raycast succeeded. Recursing." << std::endl;
     // Create a new vertex at intersection and append to list
-    Vert nextVert = createVertex(hit, getNormal(hit_Data), 2, -1, hit_Data);
+    Vert nextVert = createVertex(hit, getNormal(hit_Data));
 
     tracedVerts.push_back(nextVert);
-    return traceGeodesic(nextVert, end, nextDirec, nextData, tracedVerts, depth, max_depth, true, fast);
+    tracedProjData.push_back(hit_Data);
+    return traceGeodesic(nextVert, hit_Data, end, endData, nextDirec, nextData, tracedVerts, tracedProjData, depth, max_depth, true, fast);
 }
 
 // Test whether the start and end are visible from each other on a particular face

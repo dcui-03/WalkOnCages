@@ -21,25 +21,9 @@ namespace Utils {
     // Convert an eigen matrix with 3 columns to a std::vector of vector3d's
     void EigM3toStdV(const Eigen::MatrixXd& mat, std::vector<Eigen::Vector3d>& vec);
 
-    // Entire mesh conversion routine Eigen to GLM
-    void meshConversionEigentoGLM(const std::vector<Eigen::Vector3d>& Eig, std::vector<glm::vec3>& GLM);
-
-    // Entire mesh conversion routine GLM to Eigen
-    // Note that GLM is float, while Eigen prefers double
-    // Do NOT convert back and forth, you will lose information
-    void meshConversionGLMtoEigen(std::vector<Eigen::Vector3d>& Eig, const std::vector<glm::vec3>& GLM);
-
-    // Copy positions and connectivity into a copied container
-    void copyPositions(const std::vector<Eigen::Vector3d>& V_old, std::vector<Eigen::Vector3d>& V_new);
-
-    void copyConnectivity(const std::vector<std::vector<int>>& T_old, std::vector<std::vector<int>>& T_new);
-
     // SORTING
     // Sort a reference list of doubles while sorting their indices in the same way
     void doubleListIdxSort(std::vector<double>& ref_List, std::vector<int>& idx_List);
-
-    // Insert at index between a pair of indices in a list
-    bool insertIdxBetweenPair(std::vector<int>& idxList, int a, int b, int new_idx);
 
     // Flattens an Eigen::Matrix3d into a 9x1 row vector
     // NOTE: Does so column-wise!
@@ -62,19 +46,18 @@ namespace Utils {
     double signedAngle(const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, const Eigen::Vector3d& axis, bool positive = false);
     
     // Computes the closest point to a triangle
-    Eigen::Vector3d triangleClosestPoint(const std::vector<Eigen::Vector3d> triVerts, const Eigen::Vector3d p);
-    // Overload with projection type
-    Eigen::Vector3d triangleClosestPoint(const std::vector<Eigen::Vector3d>& triVerts, const Eigen::Vector3d& p, 
+    Eigen::Vector3d triangleClosestPoint(const std::vector<Eigen::Vector3d>& triVerts, const Eigen::Vector3d& p,
                                          int& projType, int& projIdx, double snapTol = 0.0);
 
     // Computes the closest point to a bilinear patch
-    Eigen::Vector3d bilinearPatchClosestPoint(const std::vector<Eigen::Vector3d>& patchVerts, const Eigen::Vector3d& p, double eps = 1e-6, int max_iter = 15);
     int bilinearPatchClosestPoint(const std::vector<Eigen::Vector3d>& patchVerts, const Eigen::Vector3d& p, double& u, double& v, double eps = 1e-6, int max_iter = 15);
     // Overload with projection type
     Eigen::Vector3d bilinearPatchClosestPoint(const std::vector<Eigen::Vector3d>& patchVerts, const Eigen::Vector3d& p,
                                               int& projType, int& projIdx, double snapTol = 0.0, double eps = 1e-8, int max_iter = 15);
     // Evaluate a bilinear patch query point given u and v
     Eigen::Vector3d bilinearPatch(const std::vector<Eigen::Vector3d>& patchVerts, double u, double v);
+    // Evaluate the basis weights of a bilinear patch's four verts given u and v
+    std::vector<std::pair<int, double>> bilinearPatchBasis(const std::vector<int>& patchVertIdxs, double u, double v);
     
     // Computes closest point to a Newell polygon
     Eigen::Vector3d polygonClosestPointNewell(const std::vector<Eigen::Vector3d>& polyVerts, const Eigen::Vector3d& p,
@@ -96,9 +79,6 @@ namespace Utils {
     // Overload given axis and rotation
     Eigen::Matrix3d computeRotation(const Eigen::Vector3d& axis, const double& theta);
 
-
-    // Returns true if two angular values are effectively the same direction.
-    bool anglesCoincident(double a, double b, double eps = 1e-10);
 
     // Project a vector onto a tangent plane, given the normal to the plane
     // Returns -1 if degenerate (shouldn't happen but we should handle it)

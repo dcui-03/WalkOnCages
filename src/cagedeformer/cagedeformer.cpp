@@ -1,22 +1,22 @@
 #include "cagedeformer.hpp"
 
-#include "mesh/mesh.hpp"
-#include "curvenet/curvenet.hpp"
-#include "dcurvenet/dcurvenet.hpp"
+#include "cage/cage.hpp"
+#include "query/query.hpp"
 #include "utils/decUtils.hpp"
 #include "utils/utils.hpp"
 #include "utils/wos.hpp"
 #include <Eigen/Core>
 #include <Eigen/Sparse>
-#include <Eigen/SparseCholesky>
 #include <chrono>
 #include <iostream>
 
 
 namespace CageDeformer {
-    int cagedeformer::computeCoordinates(const Eigen::MatrixXd& query_pos, int coordType, int num_samples, int max_samples) {
+    cagedeformer::cagedeformer(Cage::cage* C, Query::query* Q): def_cage(C), def_query(Q);
+
+    int cagedeformer::computeCoordinates(int coordType, int num_samples, int max_samples) {
         // First make sure we have sufficient conditions
-        if (cage_CN == nullptr && cage_M == nullptr) {
+        if (def_cage == nullptr && def_query == nullptr) {
             return -1;
         }
         // Check the coordinate type
@@ -24,18 +24,21 @@ namespace CageDeformer {
             return -1;
         }
         // Check the query positions
+        Eigen::MatrixXd query_pos;
+        def_query->matrixVerts(query_pos);
         if ((query_pos.rows() < 1) || (query_pos.cols() != 3)) {
             return -1;
         }
-
-
         // Same initial setup for all coords. Only differ by weights and sampling criteria
         // First, get all query points and create a query for each
-        std::vector<Query> queries(query_pos.rows());
+        std::vector<QueryVert> queries(query_pos.rows());
+
         // Get all cage controls' positions
-        // TODO
         Eigen::MatrixXd cage_pos;
-        
+        def_cage->matrixVerts(cage_pos);
+        if ((cage_pos.rows() < 1) || (cage_pos.cols() != 3)) {
+            return -1;
+        }
         // Set up the coordinate matrix
         coords.resize(queries.size(), cage_pos.rows());
         coords.setZero();
@@ -46,31 +49,15 @@ namespace CageDeformer {
             int num_success;
             for (int s = 0; s < max_samples; s++) {
                 // Launch k WoS walks, until we get at least t samples
-                // TODO: make adaptable/generalize to more cage types
-                Mesh::meshBindData hitData;
                 // TODO: tune the correct walk parameters
-                int success = WoS::WalkOnSpheres_Mesh(queries[q].pos, cage_M, hitData, 0, 60, 1e-3 * M->bboxDiag);
+                // TODO: Figure out how to replace hit data...
+                int success = WoS::WalkOnSpheres(queries[q].pos, def_cage, TODO, 0, 60, 1e-3 * M->bboxDiag);
                 if (success != 1) { // Failed, continue
                     continue;
                 }
                 // TODO: not every coordType wants to do a traditional WoS, some want to do raycasting/visibility... may need to modify/rethink?
                 // For each sample, compute its relevant verts and basis coords
                 Sample y;
-                y.pos = hitData.proj;
-                if (hitData.elType == 0) {  // A single vertex
-                    y.bases.push_back({hitData.elIdx, 1.0});
-                } else if (hitData.elType == 1) {
-                    int he0 = cage_M->E[hitData.elIdx].he;
-                    int v1 = cage_M->HE[he0].dest;
-                    int v0 = cage_M->V[cage_M->HE[he].twin].dest;
-                    y.bases.push_back({v0, hitData.coords[0]});
-                    y.bases.push_back({v1, 1.0 - hitData.coords[0]});
-                } else if (hitData.elType == 2) {
-                    std::vector<int> fVerts = cage_M->faceAdjVertIdxs(hitData.elIdx);
-                    for (int v = 0; v < fVerts.size(); v++) {
-                        y.bases.push_back({v, hitData.coords[v]});
-                    }
-                }
                 // Get the correct corresponding weight for the sample
                 if (coordType == 0) {
                     y.weight = 1.0;
@@ -94,7 +81,7 @@ namespace CageDeformer {
             // Invert M
             Eigen::Matrix4d M_inv = M.inverse();
 
-            std::map<int, Eigen::Vector4d> m_v;   // m_v evaluated 
+            std::map<int, Eigen::Vector4d> m_v;   // m_v is evaluated at vertices
             // For each v which contributed, compute m_v
             for (int s = 0; s < queries[q].samples.size(); s++) {
                 const Sample& y = queries[q].samples[s];
@@ -117,36 +104,24 @@ namespace CageDeformer {
                 coords(q, v) = alpha;
             }
         }
-
-        
         return 1;
     }
 
-    // The user supplies the correct smoothign operator for the query object
-    int cagedeformer::applySmoothing(const Eigen::SparseMatrix<double>& smoothingOp) {
-        // 1. Check that the dimensions of the smoothing operator are fine
-        if (smoothingOp.rows() != coords.rows() || smoothingOp.cols() != coords.rows()) {
+    // Get the smoothing operator from the user
+    int cagedeformer::applySmoothing() {
+        // For each column in the coord matrix, apply the smoothing operator (we can do this all at once actually!)
+        Eigen::MatrixXd result;
+        if (def_query->applySmoothing(coords, result) != 1) {
             return -1;
         }
-        // 2. For each column in the coord matrix, apply the smoothing operator (we can do this all at once actually!)
-        coords = smoothingOp * coords;
+        coords = result;    // Apply changes
         return 1;
     }
 
     // Apply deformation
     // First, query the new vertex locations, then apply the coords operator
     int cagedeformer::applyDeformation(Eigen::MatrixXd& query_pos) {
-        // Get the relevant coords
-        if (cage_CN == nullptr && cage_M == nullptr) {
-            return -1;
-        }
-
-        // TODO: Get CN or Mesh coords
-        Eigen::MatrixXd cage_pos;
-        if (cage_pos.rows() != coords.cols()) {
-            return -1;
-        }
-
+        Eigen::MatrixXd cage_pos = def_cage->matrixVerts();
         // Apply the coordinate operator
         query_pos = coords * cage_pos;
         return 1;

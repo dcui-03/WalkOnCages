@@ -3,7 +3,6 @@
 
 #include <Eigen/Core>
 #include <vector>
-#include <utility>
 
 
 namespace Mesh {
@@ -52,6 +51,20 @@ std::vector<int> mesh::vertAdjVerts(int v) const {
     return adjVerts;
 }
 
+// Get an arbitrary vertex loop starting from a certain halfedge index
+std::vector<int> mesh::vertLoop(int he) const {
+    int max_search = active_e/2;
+    int iter = 0;
+    std::vector<int> vLoop;
+    int he_curr = he;
+    do {
+        vLoop.push_back(HE[he_curr].dest);
+        he_curr = HE[he_curr].next;
+        iter++;
+    } while((he_curr != he) && (iter <= max_search));
+    return vLoop;
+}
+
 // Returns a CCW list of a vertex's adjacent faces
 // INCLUDES BOUNDARY if a boundary is adjacent
 std::vector<int> mesh::vertAdjFaces(int v) const {
@@ -76,20 +89,6 @@ std::vector<int> mesh::vertAdjFaces(int v) const {
         adjFaces.push_back(f);
     }
     return adjFaces;
-}
-
-// Get an arbitrary vertex loop starting from a certain halfedge index
-std::vector<int> mesh::vertLoop(int he) const {
-    int max_search = active_e/2;
-    int iter = 0;
-    std::vector<int> vLoop;
-    int he_curr = he;
-    do {
-        vLoop.push_back(HE[he_curr].dest);
-        he_curr = HE[he_curr].next;
-        iter++;
-    } while((he_curr != he) && (iter <= max_search));
-    return vLoop;
 }
 
 // Returns the endpoints of an edge in an arbitrary order.
@@ -129,7 +128,7 @@ std::vector<int> mesh::halfedgeLoop(int he) const {
         he_curr = HE[he_curr].next;
         iter++;
     } while((he_curr != he) && (iter <= max_search));
-    
+
     return heLoop;
 }
 
