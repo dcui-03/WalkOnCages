@@ -31,7 +31,7 @@ namespace WoS {
         // Compute the next sample
         Eigen::Vector3d p_next = p + d * newDirec;
         // Recurse
-        return WalkOnSpheres(p_next, M, hitData, iter+1, max_iter, eps);
+        return WalkOnSpheres(p_next, C, elType, elIdx, proj, coords, iter+1, max_iter, eps);
     }
 
     // Generate a new random walk direction
