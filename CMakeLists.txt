@@ -51,5 +51,5 @@ else()
   message(WARNING "OpenMP not found. Building without OpenMP parallelism.")
 endif()
 
-add_executable(profile_mover src/main.cpp)
-target_link_libraries(profile_mover PRIVATE cd_core)
+add_executable(walk_on_cage src/main.cpp)
+target_link_libraries(walk_on_cage PRIVATE cd_core)
