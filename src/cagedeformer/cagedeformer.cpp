@@ -9,6 +9,7 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <Eigen/QR>
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <random>
@@ -68,8 +69,8 @@ namespace CageDeformer {
         beta.resize(queries.size(), cage_pos.rows());
         beta.setZero();
 
-        // Tracks whether each query point got at least one successful sample
-        std::vector<char> query_ok(queries.size(), 0);
+        // Successful sample count per query point
+        std::vector<int> query_num_success(queries.size(), 0);
 
         // For each query point...
         #pragma omp parallel for
@@ -85,14 +86,21 @@ namespace CageDeformer {
             } else if (coordType == 2) {
                 num_success = computePositiveMVCoordinates(queries[q].pos, num_samples, max_samples, gen, queries[q].samples);
             }
-            query_ok[q] = (num_success > 0) ? 1 : 0;
+            query_num_success[q] = std::max(num_success, 0);
 
             solveAlpha(q, queries[q].pos, queries[q].samples);
         }
 
-        // Fail loudly if any query point never got a single successful sample
-        for (int q = 0; q < query_ok.size(); q++) {
-            if (!query_ok[q]) {
+        // Report average successes per query, then fail if any query got zero
+        double avg_success = 0.0;
+        for (int q = 0; q < query_num_success.size(); q++) {
+            avg_success += query_num_success[q];
+        }
+        avg_success /= query_num_success.size();
+        std::cout << "Average successful samples per query: " << avg_success << std::endl;
+
+        for (int q = 0; q < query_num_success.size(); q++) {
+            if (query_num_success[q] == 0) {
                 return -1;
             }
         }
