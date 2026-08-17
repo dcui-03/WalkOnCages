@@ -12,13 +12,13 @@ polynetcage::polynetcage(Polynet::polynet* PN): PN(PN) {
 }
 
 // Function for retrieving verices as a matrix
-int polynetcage::matrixVerts(Eigen::MatrixXd& Verts) {
+int polynetcage::matrixVerts(Eigen::MatrixXd& Verts) const {
     PN->vertsAsMatrix(Verts);
     return 1;
 }
 
 // Function for querying closest point
-int polynetcage::closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) {
+int polynetcage::closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) const {
     Polynet::polyBindData bindData;
     int success = PN->closestPoint(p, bindData);
     if (success != 1) {
@@ -33,13 +33,13 @@ int polynetcage::closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx,
 }
 
 // Function for computing basis of mesh element
-std::vector<std::pair<int, double>> polynetcage::computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) {
+std::vector<std::pair<int, double>> polynetcage::computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) const {
     std::vector<std::pair<int, double>> bases;
     PN->evaluateBasis(elType, elIdx, coords[0], bases);
     return bases;
 }
 
-int polynetcage::computeColors(Eigen::MatrixXd& Colors) {
+int polynetcage::computeColors(Eigen::MatrixXd& Colors) const {
     Eigen::MatrixXd Verts;
     PN->vertsAsMatrix(Verts);
     Eigen::Vector3d centroid = Verts.colwise().mean();

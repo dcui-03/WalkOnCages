@@ -15,16 +15,16 @@ class cage {
         virtual ~cage() = default;
 
         // Function for retrieving verices as a matrix
-        virtual int matrixVerts(Eigen::MatrixXd& Verts) = 0;
+        virtual int matrixVerts(Eigen::MatrixXd& Verts) const = 0;
 
         // Function for querying closest point
-        virtual int closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) = 0;
+        virtual int closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) const = 0;
 
         // Function for computing basis
-        virtual std::vector<std::pair<int, double>> computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) = 0;
+        virtual std::vector<std::pair<int, double>> computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) const = 0;
 
         // Debug colors, one row per cage vertex (same order as matrixVerts), values in [0,1]
-        virtual int computeColors(Eigen::MatrixXd& Colors) = 0;
+        virtual int computeColors(Eigen::MatrixXd& Colors) const = 0;
 
         // Get bounding box diagonal length
         virtual double bboxDiag() const = 0;

@@ -13,12 +13,12 @@ curvenetcage::curvenetcage(Curvenet::curvenet* CN): CN(CN) {
 }
 
 // Function for retrieving verices as a matrix
-int curvenetcage::matrixVerts(Eigen::MatrixXd& Verts) {
+int curvenetcage::matrixVerts(Eigen::MatrixXd& Verts) const {
     return CN->CTasMatrix(Verts);
 }
 
 // Function for querying closest point
-int curvenetcage::closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) {
+int curvenetcage::closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) const {
     Curvenet::cnBindData bindData;
     int success = CN->closestPoint(p, &dCN, bindData);
     if (success != 1) {
@@ -33,13 +33,13 @@ int curvenetcage::closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx
 }
 
 // Function for computing basis of mesh element
-std::vector<std::pair<int, double>> curvenetcage::computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) {
+std::vector<std::pair<int, double>> curvenetcage::computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) const {
     std::vector<std::pair<int, double>> bases;
     CN->evaluateBasis(elIdx, coords[0], bases);
     return bases;
 }
 
-int curvenetcage::computeColors(Eigen::MatrixXd& Colors) {
+int curvenetcage::computeColors(Eigen::MatrixXd& Colors) const {
     Eigen::MatrixXd Verts;
     CN->CTasMatrix(Verts);
     Eigen::Vector3d centroid = Verts.colwise().mean();
