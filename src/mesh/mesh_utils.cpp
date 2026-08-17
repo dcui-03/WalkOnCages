@@ -17,11 +17,11 @@ namespace Mesh {
 // Project a vertex onto the mesh. If multiple, just picks the one with smaller index.
 // Also returns the element type that was landed on.
 // For non-planar faces, I am just going to fit a Newell plane using the barycenter and vector area + a barycentric height interpolation
-vertProjData mesh::computeVProjection(const Eigen::Vector3d& v,
+Utils::projData mesh::computeVProjection(const Eigen::Vector3d& v,
                                       Eigen::Vector3d& proj,
                                       bool snap,
                                       bool fast) const {
-    vertProjData projData({-1, -1});
+    Utils::projData projData({-1, -1});
 
     if (active_f == 0) {
         return projData;
@@ -44,7 +44,7 @@ vertProjData mesh::computeVProjection(const Eigen::Vector3d& v,
             }
 
             Eigen::Vector3d candidateProj;
-            vertProjData candidateData({2, f});
+            Utils::projData candidateData({2, f});
 
             if (closestPointOnFace(f, v, candidateProj, candidateData, snap) != 1) {
                 continue;
@@ -134,7 +134,7 @@ double mesh::pointAABBDist2(const Eigen::Vector3d& p, int box) const {
 }
 
 int mesh::closestPointOnFace(int f, const Eigen::Vector3d& v, Eigen::Vector3d& v_proj,
-                             vertProjData& candidateProj, bool snap) const {
+                             Utils::projData& candidateProj, bool snap) const {
     if (f < 0 || f >= F.size() || !F[f].active) {
         return -1;
     }
@@ -192,7 +192,7 @@ int mesh::closestPointOnFace(int f, const Eigen::Vector3d& v, Eigen::Vector3d& v
 }
 
 // Closest face test for BVH 
-int mesh::closestFaceBVH(const Eigen::Vector3d& v, Eigen::Vector3d& proj, vertProjData& projData, bool snap) const {
+int mesh::closestFaceBVH(const Eigen::Vector3d& v, Eigen::Vector3d& proj, Utils::projData& projData, bool snap) const {
     if (BVH.empty()) {
         return -1;
     }
@@ -217,7 +217,7 @@ int mesh::closestFaceBVH(const Eigen::Vector3d& v, Eigen::Vector3d& proj, vertPr
             for (int i = 0; i < box.faces.size(); i++) {
                 int f = box.faces[i];
                 Eigen::Vector3d candidateProj;
-                vertProjData candidateData({2, f});
+                Utils::projData candidateData({2, f});
                 if (closestPointOnFace(f, v, candidateProj, candidateData, snap) != 1) {
                     continue;
                 }
@@ -247,24 +247,24 @@ int mesh::closestFaceBVH(const Eigen::Vector3d& v, Eigen::Vector3d& proj, vertPr
 }
 
 // Alternative to vertex projection that also computes additional bind data
-int mesh::computeVBinding(const Eigen::Vector3d& p, meshBindData& bind, bool snap, bool fast) const {
-    bind = meshBindData();
+int mesh::computeVBinding(const Eigen::Vector3d& p, Utils::frameData& bind, bool snap, bool fast) const {
+    bind = Utils::frameData();
     Eigen::Vector3d proj;
-    vertProjData projData = computeVProjection(p, proj, snap, fast);
+    Utils::projData projData = computeVProjection(p, proj, snap, fast);
 
     if (projData.elIdx < 0) {
         return -1;
     }
 
-    bind.elType = projData.elType;
-    bind.elIdx = projData.elIdx;
-    bind.proj = proj;
+    bind.proj.elType = projData.elType;
+    bind.proj.elIdx = projData.elIdx;
+    bind.proj.pos = proj;
     bind.offset = p - proj;
 
-    if (computeBindCoords(bind.elType, bind.elIdx, proj, bind.coords) != 1) {
+    if (computeBindCoords(bind.proj.elType, bind.proj.elIdx, proj, bind.proj.coords) != 1) {
         return -1;
     }
-    if (computeBindFrame(bind.elType, bind.elIdx, bind.restFrame) != 1) {
+    if (computeBindFrame(bind.proj.elType, bind.proj.elIdx, bind.frame) != 1) {
         return -1;
     }
 
@@ -389,6 +389,131 @@ int mesh::computeBindCoords(int elType, int elIdx, const Eigen::Vector3d& proj, 
     return -1;
 }
 
+// Test a single face for ray intersections
+int mesh::rayIntersectFace(int f, const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, bool fast, std::vector<Utils::projData>& hits) const {
+    std::vector<int> fVerts = faceAdjVertIdxs(f);
+    int fSize = static_cast<int>(fVerts.size());
+    if (fSize < 3) {
+        return -1;
+    }
+    std::vector<Eigen::Vector3d> fVertsPos = adjVerts(fVerts);
+
+    if (fSize == 3) {
+        double t;
+        if (!Utils::rayTriangleIntersect(origin, direc, fVertsPos[0], fVertsPos[1], fVertsPos[2], t)) {
+            return -1;
+        }
+        Utils::projData hit;
+        hit.elType = 2;
+        hit.elIdx = f;
+        hit.pos = origin + t * direc;
+        if (computeBindCoords(2, f, hit.pos, hit.coords) != 1) {
+            return -1;
+        }
+        hits.push_back(hit);
+        return 1;
+    }
+
+    if (fSize == 4) {
+        std::vector<Eigen::Vector3d> uvt;
+        if (Utils::rayBilinearPatchIntersect(origin, direc, fVertsPos, uvt) != 1) {
+            return -1;
+        }
+        for (const Eigen::Vector3d& root : uvt) {
+            Utils::projData hit;
+            hit.elType = 2;
+            hit.elIdx = f;
+            hit.coords.resize(2);
+            hit.coords(0) = root(0);
+            hit.coords(1) = root(1);
+            hit.pos = Utils::bilinearPatch(fVertsPos, root(0), root(1));
+            hits.push_back(hit);
+        }
+        return 1;
+    }
+
+    // 5+ sided: intersect the Newell plane, then check the hit actually lands inside the polygon
+    Eigen::Vector3d n = F[f].n;
+    if (n.squaredNorm() <= 1e-12) {
+        return -1;
+    }
+    n.normalize();
+    Eigen::Vector3d barycenter = DECUtils::computeBarycenter(fVertsPos);
+    double t;
+    if (!Utils::rayPlaneIntersect(origin, direc, barycenter, n, t)) {
+        return -1;
+    }
+    Eigen::Vector3d hitPos = origin + t * direc;
+
+    Eigen::Vector3d t1, t2;
+    Utils::buildPlaneBasis(n, t1, t2);
+    Eigen::Vector2d hit2D = Utils::convertTo2D(hitPos, barycenter, t1, t2);
+    std::vector<Eigen::Vector2d> fVerts2D(fSize);
+    for (int i = 0; i < fSize; i++) {
+        Eigen::Vector3d vProj = Utils::projectPointOntoPlane(n, barycenter, fVertsPos[i]);
+        fVerts2D[i] = Utils::convertTo2D(vProj, barycenter, t1, t2);
+    }
+    if (!Utils::pointInPolygon2D(hit2D, fVerts2D)) {
+        return -1;
+    }
+
+    Utils::projData hit;
+    hit.elType = 2;
+    hit.elIdx = f;
+    hit.pos = hitPos;
+    if (computeBindCoords(2, f, hit.pos, hit.coords) != 1) {
+        return -1;
+    }
+
+    // Slow mode: re-lift off the flat Newell plane onto the non-planar face
+    if (!fast) {
+        Eigen::VectorXd fHeight = computeFaceHeight(f);
+        bool planar = true;
+        for (int i = 0; i < fSize; i++) {
+            if (std::abs(fHeight(i)) >= 1e-6) {
+                planar = false;
+                break;
+            }
+        }
+        if (!planar) {
+            hit.pos += hit.coords.dot(fHeight) * n;
+        }
+    }
+
+    hits.push_back(hit);
+    return 1;
+}
+
+// Cast a ray through the BVH
+int mesh::raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, std::vector<Utils::projData>& hits, bool fast) const {
+    hits.clear();
+    if (BVH.empty()) {
+        return -1;
+    }
+    std::vector<int> stack = {0};
+    while (!stack.empty()) {
+        int box = stack.back();
+        stack.pop_back();
+        const AABB& node = BVH[box];
+        if (!Utils::rayAABBIntersect(origin, direc, node.bdyVerts.first, node.bdyVerts.second)) {
+            continue;
+        }
+        if (node.leaf) {
+            for (int f : node.faces) {
+                if (!F[f].active) {
+                    continue;
+                }
+                rayIntersectFace(f, origin, direc, fast, hits);
+            }
+        } else {
+            for (int child : node.children) {
+                stack.push_back(child);
+            }
+        }
+    }
+    return Utils::sortRayHits(hits, origin, direc);
+}
+
 // Compute the frame at the bind point
 int mesh::computeBindFrame(int elType, int elIdx, Eigen::Matrix3d& frame) const {
     const double eps = 1e-12;
@@ -496,7 +621,7 @@ int mesh::recoverCoords(int elType, int elIdx, const Eigen::VectorXd& coords, Ei
 }
 
 // Evaluate the basis weights of the verts spanning the mesh element a projData sits on
-int mesh::evaluateBasis(const vertProjData& proj, const Eigen::VectorXd& coords, std::vector<std::pair<int, double>>& basis) const {
+int mesh::evaluateBasis(const Utils::projData& proj, const Eigen::VectorXd& coords, std::vector<std::pair<int, double>>& basis) const {
     basis.clear();
 
     if (proj.elType == 0) { // On a vertex (trivial)

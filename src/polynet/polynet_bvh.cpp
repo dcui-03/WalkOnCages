@@ -1,5 +1,6 @@
 #include "polynet.hpp"
 
+#include "utils/utils.hpp"
 #include <Eigen/Core>
 #include <vector>
 #include <utility>
@@ -186,13 +187,13 @@ namespace Polynet {
     }
 
     // Find the closest point on the polyline to p, snapping to a vertex within snapTol
-    int polynet::closestPoint(const Eigen::Vector3d& p, polyBindData& bind, bool snap, double snapTol) const {
+    int polynet::closestPoint(const Eigen::Vector3d& p, Utils::projData& bind, bool snap, double snapTol) const {
         if (BVH.empty()) {
             return -1;
         }
 
         double bestDist2 = std::numeric_limits<double>::infinity();
-        bind = polyBindData();
+        bind = Utils::projData();
 
         std::priority_queue<BVHQueueEntry> q;
         q.push({0, pointAABBDist2(p, 0)});
@@ -223,18 +224,19 @@ namespace Polynet {
                     if (d2 < bestDist2) {
                         bestDist2 = d2;
                         bind.pos = candidatePos;
+                        bind.coords.resize(1);
                         if (snap && (candidatePos - p0).squaredNorm() <= snapTol * snapTol) {
                             bind.elType = 0;
                             bind.elIdx = v0;
-                            bind.t = 0.0;
+                            bind.coords(0) = 0.0;
                         } else if (snap && (candidatePos - p1).squaredNorm() <= snapTol * snapTol) {
                             bind.elType = 0;
                             bind.elIdx = v1;
-                            bind.t = 1.0;
+                            bind.coords(0) = 1.0;
                         } else {
                             bind.elType = 1;
                             bind.elIdx = e;
-                            bind.t = t;
+                            bind.coords(0) = t;
                         }
                     }
                 }
@@ -253,5 +255,56 @@ namespace Polynet {
             return -1;
         }
         return 1;
+    }
+
+    // Cast a ray through the edge BVH and return hits from nearest to furthest given some padding on the edges
+    int polynet::raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, std::vector<Utils::projData>& hits, double tol) const {
+        hits.clear();
+        if (BVH.empty()) {
+            return -1;
+        }
+        // Search the tree, computing intersections as we go
+        std::vector<int> stack = {0};
+        while (!stack.empty()) {
+            int box = stack.back();
+            stack.pop_back();
+            const AABB& node = BVH[box];
+            if (!Utils::rayAABBIntersect(origin, direc, node.bdyVerts.first, node.bdyVerts.second, tol)) {
+                continue;
+            }
+
+            if (node.leaf) {
+                for (int e : node.edges) {
+                    if (!E[e].active) {
+                        continue;
+                    }
+                    int he = E[e].he;
+                    int v0 = HE[HE[he].twin].dest;
+                    int v1 = HE[he].dest;
+                    const Eigen::Vector3d& p0 = V[v0].new_pos;
+                    const Eigen::Vector3d& p1 = V[v1].new_pos;
+
+                    double t, s;
+                    double dist = Utils::closestApproachRaySegment(origin, direc, p0, p1, t, s);
+                    if (dist > tol) {   // Too far; not a candidate intersection
+                        continue;
+                    }
+                    // Otherwise, track the hit information
+                    Utils::projData hit;
+                    hit.elType = 1;
+                    hit.elIdx = e;
+                    hit.pos = p0 + s * (p1 - p0);
+                    hit.coords.resize(1);
+                    hit.coords(0) = s;
+                    hits.push_back(hit);
+                }
+            } else {
+                for (int child : node.children) {
+                    stack.push_back(child);
+                }
+            }
+        }
+
+        return Utils::sortRayHits(hits, origin, direc);
     }
 }   // namespace Polynet

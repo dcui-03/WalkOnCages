@@ -3,6 +3,7 @@
 
 #include "polynet_types.hpp"
 #include "mesh/mesh.hpp"
+#include "utils/utils.hpp"
 #include <Eigen/Core>
 #include <vector>
 #include <array>
@@ -26,6 +27,9 @@ class polynet {
         // --------- GETTERS -----------
         const int numVerts() const { return V.size(); }
         const int numHalfedges() const { return HE.size(); }
+        const int numEdges() const { return E.size(); }
+        // Endpoint positions of an edge (origin, dest)
+        std::pair<Eigen::Vector3d, Eigen::Vector3d> edgeEndpoints(int e) const;
 
         // --------- RUNTIME COMPUTATION -----------
         // Propagate weights along the network using V[].fixed_w/.w as the boundary condition
@@ -35,7 +39,9 @@ class polynet {
         // Build a BVH over edges
         int computeBVH();
         // Find the closest point on the polyline to p, snapping to a vertex within snapTol
-        int closestPoint(const Eigen::Vector3d& p, polyBindData& bind, bool snap = true, double snapTol = 1e-6) const;
+        int closestPoint(const Eigen::Vector3d& p, Utils::projData& bind, bool snap = true, double snapTol = 1e-6) const;
+        // Cast a ray and collect all edges within tol of it, then sort from nearest to furthest. direc must be unit length
+        int raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, std::vector<Utils::projData>& hits, double tol) const;
 
         int vertsAsMatrix(Eigen::MatrixXd& Verts);
         int evaluateBasis(int elType, int elIdx, double t, std::vector<std::pair<int, double>>& basis);

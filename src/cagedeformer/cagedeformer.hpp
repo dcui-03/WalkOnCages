@@ -24,7 +24,7 @@ class cagedeformer {
         void applyCage(Cage::cage* C);
         void applyQuery(Query::query* Q);
 
-        // Compute the actual coordinates. Smooths automatically on success (see applySmoothing)
+        // Compute the actual coordinates. Smooths automatically
         // coordType: 0 is harmonic, 1 is MVC, 2 is positive-MVC
         int computeCoordinates(int coordType = 0, int num_samples = 20, int max_samples = 10000);
 
@@ -32,11 +32,11 @@ class cagedeformer {
         // First, query the new vertex locations, then apply the coords operator
         int applyDeformation(Eigen::MatrixXd& query_pos);
 
-        // Interpolate arbitrary per-cage-vertex values (e.g. debug colors) using the same coords operator
+        // Interpolate colors from the cage to the query
         int applyColor(const Eigen::MatrixXd& Colors, Eigen::MatrixXd& Result);
-        // Debug colors, per query vertex, ready for a polyscope vertex color quantity (cagedeformer_ps.cpp)
+        // Debug colors on query in polyscope format
         int colorsPolyscopeFormat(std::vector<glm::vec3>& colors);
-        // The cage's own (uninterpolated) colors, ready for a polyscope point cloud color quantity
+        // Visualize cage's colors in polyscope format
         int cageColorsPolyscopeFormat(std::vector<glm::vec3>& colors);
 
         // Get spatial gradients using stored values (for colors specifically)
@@ -52,17 +52,20 @@ class cagedeformer {
         int computeMVCoordinates(const Eigen::Vector3d& q_pos, int num_samples, int max_samples, std::mt19937& gen, std::vector<Sample>& samples);
         int computePositiveMVCoordinates(const Eigen::Vector3d& q_pos, int num_samples, int max_samples, std::mt19937& gen, std::vector<Sample>& samples);
 
-        // Shared moment-fit solve, coordType-agnostic. Writes row q of coords
-        void solveAlpha(int q, const Eigen::Vector3d& q_pos, const std::vector<Sample>& samples);
+        // Ask the cage for a set of random samples (via raycasting)
+        int computeRandomSamples(const Eigen::Vector3d& q_pos, std::mt19937& gen, std::vector<Utils::projData>& hits);
 
-        // Smooths gradX/gradY/gradZ/beta, then rebuilds coords from them at each query's own position
+        // Solve for gradX/gradY/gradZ/beta (the components of u_x) at query q
+        void solveAlpha(int q, const std::vector<Sample>& samples);
+
+        // Smooths gradX/gradY/gradZ/beta
         int applySmoothing(int num_samples);
 
         // Coordinates for each vertex as an n x m matrix (i.e., each row is a query; each col is a cage vert)
         Eigen::MatrixXd coords;
-        // Gradient of each coordinate w.r.t. the query position, same shape as coords, split by component
+        // Gradient of each coordinate w.r.t. the query position (first three coords of u_x)
         Eigen::MatrixXd gradX, gradY, gradZ;
-        // Affine intercept of u_x (the 4th, homogeneous component), same shape as coords
+        // Homogeneous coordinate of u_x
         Eigen::MatrixXd beta;
 
         // Store current coordinate type

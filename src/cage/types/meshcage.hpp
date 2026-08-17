@@ -7,6 +7,7 @@
 #include <vector>
 #include <array>
 #include <map>
+#include <random>
 
 namespace Cage {
 
@@ -20,13 +21,19 @@ class meshcage : public cage {
         virtual int matrixVerts(Eigen::MatrixXd& Verts) const override;
 
         // Function for querying closest point
-        virtual int closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) const override;
+        virtual int closestPoint(const Eigen::Vector3d& p, Utils::projData& hit) const override;
 
         // Function for computing basis of mesh element
-        virtual std::vector<std::pair<int, double>> computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) const override;
+        virtual std::vector<std::pair<int, double>> computeBasis(const Utils::projData& proj) const override;
 
         // Debug colors: vertex normal remapped to [0,1]
         virtual int computeColors(Eigen::MatrixXd& Colors) const override;
+
+        // Uniform random direction on the sphere
+        virtual int sampleDirection(const Eigen::Vector3d& q_pos, std::mt19937& gen, Eigen::Vector3d& direc) const override;
+
+        // Cast a ray against the mesh
+        virtual int raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, std::vector<Utils::projData>& hits, double tol) const override;
 
         // Get bounding box diagonal length
         virtual double bboxDiag() const override;

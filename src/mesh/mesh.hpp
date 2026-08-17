@@ -2,6 +2,7 @@
 #pragma once
 
 #include "mesh_types.hpp"
+#include "../utils/utils.hpp"
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <Eigen/StdVector>
@@ -27,16 +28,19 @@ class mesh {
 
         // Project a vertex onto the mesh
         // mesh_utils.cpp
-        // A version which returns a vertProjData object
-        vertProjData computeVProjection(const Eigen::Vector3d& v, Eigen::Vector3d& proj, bool snap = true, bool fast = true) const;
+        // A version which returns a Utils::projData object
+        Utils::projData computeVProjection(const Eigen::Vector3d& v, Eigen::Vector3d& proj, bool snap = true, bool fast = true) const;
         // A generalization of computeVProjection that also computes other data if the caller wants
-        int computeVBinding(const Eigen::Vector3d& p, meshBindData& bind, bool snap = true, bool fast = true) const;
+        int computeVBinding(const Eigen::Vector3d& p, Utils::frameData& bind, bool snap = true, bool fast = true) const;
 
         // Recover a point location from stored coordinates
         int recoverCoords(int elType, int elIdx, const Eigen::VectorXd& coords, Eigen::Vector3d& p, bool fast = true);
 
         // Evaluate the basis weights of the verts spanning the mesh element a projData sits on
-        int evaluateBasis(const vertProjData& proj, const Eigen::VectorXd& coords, std::vector<std::pair<int, double>>& basis) const;
+        int evaluateBasis(const Utils::projData& proj, const Eigen::VectorXd& coords, std::vector<std::pair<int, double>>& basis) const;
+        // Cast a ray and collect all t >= 0 intersections with the mesh, nearest first. direc must be unit length.
+        // fast skips re-lifting a Newell-plane (5+ sided) hit off a non-planar face
+        int raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, std::vector<Utils::projData>& hits, bool fast = true) const;
         // Compute the mesh laplacian on verts
         int computeLaplacian(Eigen::SparseMatrix<double>& L);
         // Compute the lumped mass matrix (as a vector) on verts
@@ -47,7 +51,7 @@ class mesh {
         void setVertPos(int v, const Eigen::Vector3d& pos);
 
         // Getters
-        Eigen::Vector3d getNormal(vertProjData projData) const;
+        Eigen::Vector3d getNormal(Utils::projData projData) const;
         Eigen::Vector3d getNormal(int elType, int elIdx) const;
         Eigen::Vector3d getVNormal(int v) const;
         Eigen::Vector3d getENormal(int e) const;
@@ -171,56 +175,57 @@ class mesh {
         int closestPointOnFace(int f,
                             const Eigen::Vector3d& p,
                             Eigen::Vector3d& proj,
-                            vertProjData& projData,
+                            Utils::projData& projData,
                             bool snap) const;
         // Find closest face given the BVH
         int closestFaceBVH(const Eigen::Vector3d& p,
                         Eigen::Vector3d& proj,
-                        vertProjData& projData,
+                        Utils::projData& projData,
                         bool snap) const;
         int computeBindCoords(int elType, int elIdx, const Eigen::Vector3d& proj, Eigen::VectorXd& coords) const;
         int computeBindFrame(int elType, int elIdx, Eigen::Matrix3d& frame) const;
+        // Test a single face for ray intersections
+        int rayIntersectFace(int f, const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, bool fast, std::vector<Utils::projData>& hits) const;
 
         // GEODESICS
         // Optional default input parameters for traced intersection vertices
         int traceGeodesic(const Vert& start,
-                        const vertProjData& startData,
+                        const Utils::projData& startData,
                         const Vert& end,
-                        const vertProjData& endData,
+                        const Utils::projData& endData,
                         Eigen::Vector3d prevDirec,
-                        vertProjData prevData,
+                        Utils::projData prevData,
                         std::vector<Vert>& tracedVerts,
-                        std::vector<vertProjData>& tracedProjData,
+                        std::vector<Utils::projData>& tracedProjData,
                         int depth = 0,
                         int max_depth = 5,
                         bool recompute = false,
                         bool fast = true);
-        // Slow Termination check for traceGeodesic: Check if the end is visible from the start
-        // on a shared face
+        // Slow Termination check for traceGeodesic: Check if the end is visible from the start on a shared face
         bool testVisibility(int f, Eigen::Vector3d start, Eigen::Vector3d end, double eps = 1e-4);
 
         int rayCastOnFace(int f, 
                         Eigen::Vector3d start, 
                         Eigen::Vector3d direc, 
                         Eigen::Vector3d& hit, 
-                        vertProjData& hitData,
+                        Utils::projData& hitData,
                         double eps = 1e-12);
         // Compute the next walk element given that we intersected with an edge
-        int nextEl_Edge(int e, const vertProjData& originData, const Eigen::Vector3d& prev_direc, 
-                    Eigen::Vector3d& next_direc, vertProjData& nextData, bool bdy_snap = true);
+        int nextEl_Edge(int e, const Utils::projData& originData, const Eigen::Vector3d& prev_direc, 
+                    Eigen::Vector3d& next_direc, Utils::projData& nextData, bool bdy_snap = true);
         // Figures out which next attribute to walk on given the very start is on an edge
-        int nextEl_EdgeStart(int e, const vertProjData& originData, const Eigen::Vector3d& start_direc,
-                           Eigen::Vector3d& next_direc, vertProjData& nextData, bool bdy_snap, double eps = 1e-6);
+        int nextEl_EdgeStart(int e, const Utils::projData& originData, const Eigen::Vector3d& start_direc,
+                           Eigen::Vector3d& next_direc, Utils::projData& nextData, bool bdy_snap, double eps = 1e-6);
         // Helper for next edge start
         int snapWalkToEdge(int e, const Eigen::Vector3d& direc, Eigen::Vector3d& next_direc,
-                         vertProjData& nextData, double eps = 1e-6) const;
+                         Utils::projData& nextData, double eps = 1e-6) const;
         // Compute the next walk element given that we intersected with a vertex
-        int nextEl_Vert(int v, const vertProjData& originData, 
+        int nextEl_Vert(int v, const Utils::projData& originData, 
                     const Eigen::Vector3d& prev_direc, Eigen::Vector3d& next_direc, 
-                    vertProjData& nextData, bool bdy_snap = true, double eps = 1e-6);
+                    Utils::projData& nextData, bool bdy_snap = true, double eps = 1e-6);
         // Figures out which next attribute to walk on given the start is on a vert
-        int nextEl_VertStart(int v, const vertProjData& originData, const Eigen::Vector3d& start_direc,
-                           Eigen::Vector3d& next_direc, vertProjData& nextData, bool bdy_snap, double eps = 1e-6);
+        int nextEl_VertStart(int v, const Utils::projData& originData, const Eigen::Vector3d& start_direc,
+                           Eigen::Vector3d& next_direc, Utils::projData& nextData, bool bdy_snap, double eps = 1e-6);
 
         // BVH
         std::vector<AABB> BVH;

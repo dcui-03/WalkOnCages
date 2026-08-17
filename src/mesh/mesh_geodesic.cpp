@@ -15,13 +15,13 @@ namespace Mesh {
 
 // Trace a "straightest" geodesic (ish) from the start vert to the end
 int mesh::traceGeodesic(const Vert& start,
-                  const vertProjData& startData,
+                  const Utils::projData& startData,
                   const Vert& end,
-                  const vertProjData& endData,
+                  const Utils::projData& endData,
                   Eigen::Vector3d prevDirec,
-                  vertProjData prevData,
+                  Utils::projData prevData,
                   std::vector<Vert>& tracedVerts,
-                  std::vector<vertProjData>& tracedProjData,
+                  std::vector<Utils::projData>& tracedProjData,
                   int depth,
                   const int max_depth,
                   bool recompute,
@@ -99,7 +99,7 @@ int mesh::traceGeodesic(const Vert& start,
                                         << prevDirec[2] << std::endl;
     */
     // We have to walk, so we now compute the next walk direction
-    vertProjData nextData;
+    Utils::projData nextData;
     Eigen::Vector3d nextDirec;
     prevDirec.normalize();
     if (recompute && startData.elType == 2) {
@@ -168,7 +168,7 @@ int mesh::traceGeodesic(const Vert& start,
         }
         // std::cout << "Walking along edge. Next vert found: " << next << std::endl;
         Vert nextVert = createVertex(V[next].pos, V[next].n);
-        vertProjData nextVertData({0, next});
+        Utils::projData nextVertData({0, next});
         // Recurse
         tracedVerts.push_back(nextVert);
         tracedProjData.push_back(nextVertData);
@@ -178,7 +178,7 @@ int mesh::traceGeodesic(const Vert& start,
     // If we reached this point, we are definitely walking on a face
     // Project walk direction onto specified direction
     Eigen::Vector3d hit;
-    vertProjData hit_Data;
+    Utils::projData hit_Data;
     // std::cout << "Walking along face " << nextData.elIdx << std::endl;
     if (rayCastOnFace(nextData.elIdx, start.pos, nextDirec, hit, hit_Data) == -1) {
         std::cout << "Raycasting failed." << std::endl;
@@ -243,7 +243,7 @@ bool mesh::testVisibility(int f, Eigen::Vector3d start, Eigen::Vector3d end, dou
 }
 
 // Find the next intersection point while walking on a particular face
-int mesh::rayCastOnFace(int f, Eigen::Vector3d start, Eigen::Vector3d direc, Eigen::Vector3d& hit, vertProjData& hitData, double eps) {
+int mesh::rayCastOnFace(int f, Eigen::Vector3d start, Eigen::Vector3d direc, Eigen::Vector3d& hit, Utils::projData& hitData, double eps) {
     double tol = 1e-5 * bboxDiag;
     Eigen::Vector3d projDirec;
     Utils::projectVectorOntoTangentPlane(F[f].n, direc, projDirec);
@@ -314,8 +314,8 @@ int mesh::rayCastOnFace(int f, Eigen::Vector3d start, Eigen::Vector3d direc, Eig
 
 // Compute the next walk element given that we intersected with an edge
 // Returns the next 
-int mesh::nextEl_Edge(int e, const vertProjData& originData, const Eigen::Vector3d& prev_direc, 
-                    Eigen::Vector3d& next_direc, vertProjData& nextData, bool bdy_snap) {
+int mesh::nextEl_Edge(int e, const Utils::projData& originData, const Eigen::Vector3d& prev_direc, 
+                    Eigen::Vector3d& next_direc, Utils::projData& nextData, bool bdy_snap) {
                         // Get adjacent faces
     nextData.elType = 2;
     if (originData.elType != 2 || originData.elIdx < 0 || originData.elIdx >= F.size()) {
@@ -368,8 +368,8 @@ int mesh::nextEl_Edge(int e, const vertProjData& originData, const Eigen::Vector
 }
 
 // Find the next walk direction given we are starting from an edge
-int mesh::nextEl_EdgeStart(int e, const vertProjData& originData, const Eigen::Vector3d& start_direc,
-                           Eigen::Vector3d& next_direc, vertProjData& nextData, bool bdy_snap, double eps) {
+int mesh::nextEl_EdgeStart(int e, const Utils::projData& originData, const Eigen::Vector3d& start_direc,
+                           Eigen::Vector3d& next_direc, Utils::projData& nextData, bool bdy_snap, double eps) {
     nextData.elType = -1;
     nextData.elIdx = -1;
     next_direc.setZero();
@@ -408,7 +408,7 @@ int mesh::nextEl_EdgeStart(int e, const vertProjData& originData, const Eigen::V
     // The face whose outward binormal aligns more with the walk direction is the face we are coming from (prev)
     dot0 = edgeProj.dot(binorm0);
     dot1 = edgeProj.dot(binorm1);
-    vertProjData tempOrigin;
+    Utils::projData tempOrigin;
     nextData.elType = 2;
     if (dot0 > dot1) {
         nextData.elIdx = f0;
@@ -437,7 +437,7 @@ int mesh::nextEl_EdgeStart(int e, const vertProjData& originData, const Eigen::V
 
 // Helper for next edge that performs edge snapping
 int mesh::snapWalkToEdge(int e, const Eigen::Vector3d& direc, Eigen::Vector3d& next_direc,
-                         vertProjData& nextData, double eps) const {
+                         Utils::projData& nextData, double eps) const {
     nextData.elType = -1;
     nextData.elIdx = -1;
     next_direc.setZero();
@@ -466,9 +466,9 @@ int mesh::snapWalkToEdge(int e, const Eigen::Vector3d& direc, Eigen::Vector3d& n
 }
 
 // Compute the next walk element given that we intersected with a vertex
-int mesh::nextEl_Vert(int v, const vertProjData& originData, 
+int mesh::nextEl_Vert(int v, const Utils::projData& originData, 
                     const Eigen::Vector3d& prev_direc, Eigen::Vector3d& next_direc, 
-                    vertProjData& nextData, bool bdy_snap, double eps) {
+                    Utils::projData& nextData, bool bdy_snap, double eps) {
     nextData.elType = 2;
     // Gather all of the adjacent halfedges and faces
     std::vector<int> adjHE = vertAdjHEs(v);
@@ -569,8 +569,8 @@ int mesh::nextEl_Vert(int v, const vertProjData& originData,
     return 1;
 }
 
-int mesh::nextEl_VertStart(int v, const vertProjData& originData, const Eigen::Vector3d& start_direc,
-                           Eigen::Vector3d& next_direc, vertProjData& nextData, bool bdy_snap, double eps) {
+int mesh::nextEl_VertStart(int v, const Utils::projData& originData, const Eigen::Vector3d& start_direc,
+                           Eigen::Vector3d& next_direc, Utils::projData& nextData, bool bdy_snap, double eps) {
     nextData.elType = -1;
     nextData.elIdx = -1;
     next_direc.setZero();

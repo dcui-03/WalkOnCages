@@ -1,6 +1,7 @@
 // polynet_types.hpp
 #pragma once
 
+#include "utils/utils.hpp"
 #include <Eigen/Core>
 #include <vector>
 #include <utility>
@@ -8,14 +9,6 @@
 // File with basic structs used by the polyline network class
 
 namespace Polynet {
-
-    // Projection data onto the corresponding mesh for each vertex
-    struct projData {
-        int elType = -1;
-        int elIdx = -1;
-        Eigen::VectorXd coords;
-        Eigen::Vector3d projVec = Eigen::Vector3d::Zero();
-    };
 
     // Bounding Volume Hierarchy over edges
     struct AABB {
@@ -36,14 +29,6 @@ namespace Polynet {
         }
     };
 
-    // Result of a closest-point query against the polyline
-    struct polyBindData {
-        int elType = -1;    // 0 = vertex, 1 = edge
-        int elIdx = -1;
-        double t = -1.0;    // Local edge parameter (0/1 if snapped from a vertex)
-        Eigen::Vector3d pos;
-    };
-
     struct Vert {
         Eigen::Vector3d pos;
         Eigen::Vector3d n = Eigen::Vector3d::Zero();    // Init to zero, since most vertices will not receive an initial normal
@@ -54,7 +39,7 @@ namespace Polynet {
         int vType = -1;
 
         // Robustness for future work
-        projData proj;
+        Utils::frameData proj;
 
         // Weights
         bool fixed_w = false;

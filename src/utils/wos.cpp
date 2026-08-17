@@ -1,3 +1,4 @@
+#define _USE_MATH_DEFINES
 #include "wos.hpp"
 #include <Eigen/Core>
 #include <Eigen/Sparse>
@@ -26,18 +27,18 @@ namespace {
 namespace WoS {
     // Regular Walk on Spheres given a point and a mesh boundary
     int WalkOnSpheres(const Eigen::Vector3d& p, const Cage::cage* C,
-                           int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords,
+                           Utils::projData& hit,
                            std::mt19937& gen,
                            const int iter, const int max_iter, double eps) {
         if (iter >= max_iter) {
             return -1;
         }
         // First, find the closest point and its coordinates
-        if (C->closestPoint(p, elType, elIdx, proj, coords) != 1) {
+        if (C->closestPoint(p, hit) != 1) {
             return -1;
         }
         // Compute the distance
-        double d = (proj - p).norm();
+        double d = (hit.pos - p).norm();
         // If we are too close, terminate
         if (d <= eps) {
             return 1;
@@ -48,7 +49,7 @@ namespace WoS {
         // Compute the next sample
         Eigen::Vector3d p_next = p + d * newDirec;
         // Recurse
-        return WalkOnSpheres(p_next, C, elType, elIdx, proj, coords, gen, iter+1, max_iter, eps);
+        return WalkOnSpheres(p_next, C, hit, gen, iter+1, max_iter, eps);
     }
 
     // Generate a new random walk direction

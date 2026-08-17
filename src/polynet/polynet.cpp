@@ -119,14 +119,11 @@ namespace Polynet {
             if (!V[v].active) {
                 continue;
             }
-            Mesh::meshBindData bindData;
+            Utils::frameData bindData;
             if (M->computeVBinding(V[v].pos, bindData) != 1) {
                 return -1;
             }
-            V[v].proj.coords = bindData.coords;
-            V[v].proj.elType = bindData.elType;
-            V[v].proj.elIdx = bindData.elIdx;
-            V[v].proj.projVec = bindData.offset;
+            V[v].proj = bindData;
         }
         return 1;
     }
@@ -196,6 +193,12 @@ namespace Polynet {
         }
 
         return 1;
+    }
+
+    // Endpoint positions of an edge (origin, dest)
+    std::pair<Eigen::Vector3d, Eigen::Vector3d> polynet::edgeEndpoints(int e) const {
+        int he = E[e].he;
+        return {V[HE[HE[he].twin].dest].pos, V[HE[he].dest].pos};
     }
 
     int polynet::vertsAsMatrix(Eigen::MatrixXd& Verts) {

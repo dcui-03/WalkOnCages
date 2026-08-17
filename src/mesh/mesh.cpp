@@ -235,7 +235,7 @@ bool mesh::clearMesh() {
 }
 
 // Getters
-Eigen::Vector3d mesh::getNormal(vertProjData projData) const {
+Eigen::Vector3d mesh::getNormal(Utils::projData projData) const {
     if (projData.elType == 0) {
         return getVNormal(projData.elIdx);
     } else if (projData.elType == 1) {

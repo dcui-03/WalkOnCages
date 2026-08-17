@@ -5,6 +5,7 @@
 #include "polynet/polynet.hpp"
 #include "curvenet/curvenet.hpp"
 #include "mesh/mesh.hpp"
+#include "utils/utils.hpp"
 #include <Eigen/Core>
 #include <vector>
 #include <map>
@@ -46,10 +47,11 @@ class dcurvenet : public polynet {
         // True iff the source curvenet has ordered (mesh-derived) connectivity at high-valence verts
         bool hasOrderedConnectivity() const;
 
-        // Find the closest point on the discretized curve network to p, recovering the
-        // curvenet spline and t-value it corresponds to (position not refined onto the
-        // actual spline; curvenet::closestPoint does that on top of this)
-        int closestPoint(const Eigen::Vector3d& p, Curvenet::cnBindData& bind, bool snap = true, double snapTol = 1e-6) const;
+        // Find the closest point on the discretized curve network to p, recovering the curvenet spline and t-value it corresponds to
+        int closestPoint(const Eigen::Vector3d& p, Utils::projData& bind, bool snap = true, double snapTol = 1e-6) const;
+
+        // Cast a ray against the discretized polyline, recovering each hit's source curvenet spline and approximate t-value
+        int raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, std::vector<Utils::projData>& hits, double tol) const;
 
         friend class Mesh::cutmesh;    // Friend class to access curvenet variables
         friend class ProfileMover::profilemover;

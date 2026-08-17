@@ -51,7 +51,7 @@ namespace Polynet {
         }
     }
 
-    // Update the new frames on all halfedges
+    // Update the new positions of all vertices
     void dcurvenet::updateDiscCurveNet() {
         const std::vector<Curvenet::Control>& cnCtrl = CN->C;
         const std::vector<Curvenet::CubicSpline>& cnSpline = CN->S;
@@ -226,7 +226,7 @@ namespace Polynet {
 
     // Propagate weights to rest of curvenet using a Laplacian
     int dcurvenet::propagateWeights() {
-        // Sync fixed/value info from the source curvenet's controls into the base's generic fields
+        // Sync fixed/value info from the source curvenet's controls into the dcurvenet's fields
         for (int v = 0; v < V.size(); v++) {
             int v_type = vertData[v].cn_type;
             int v_idx = vertData[v].cn_idx;
@@ -237,6 +237,7 @@ namespace Polynet {
                 V[v].fixed_w = false;
             }
         }
+        // propagate weights using laplacian
         return polynet::propagateWeights();
     }
 
@@ -244,10 +245,9 @@ namespace Polynet {
         return CN->setMesh;
     }
 
-    // Find the closest point on the discretized curve network, then recover which curvenet
-    // spline/t-value it corresponds to
-    int dcurvenet::closestPoint(const Eigen::Vector3d& p, Curvenet::cnBindData& bind, bool snap, double snapTol) const {
-        polyBindData pBind;
+    // Find the closest point on the discretized curve network, then recover which curvenet spline/t-value it corresponds to
+    int dcurvenet::closestPoint(const Eigen::Vector3d& p, Utils::projData& bind, bool snap, double snapTol) const {
+        Utils::projData pBind;
         if (polynet::closestPoint(p, pBind, snap, snapTol) != 1) {
             return -1;
         }
@@ -256,7 +256,7 @@ namespace Polynet {
         double local_t = 0.0;
         if (pBind.elType == 1) {   // Edge
             e = pBind.elIdx;
-            local_t = pBind.t;
+            local_t = pBind.coords(0);
         } else if (pBind.elType == 0) {   // Vertex: borrow any incident edge
             int v = pBind.elIdx;
             if (V[v].adjHE.empty()) {
@@ -273,10 +273,41 @@ namespace Polynet {
             return -1;
         }
 
-        bind = Curvenet::cnBindData();
-        bind.s = edgeSpline[e];
-        bind.t = (1.0 - local_t) * edgeSplineT[e].first + local_t * edgeSplineT[e].second;
+        bind = Utils::projData();
+        bind.elIdx = edgeSpline[e];
+        bind.coords.resize(1);
+        bind.coords(0) = (1.0 - local_t) * edgeSplineT[e].first + local_t * edgeSplineT[e].second;
         bind.pos = pBind.pos;
         return 1;
+    }
+
+    // Cast a ray against the discretized polyline, then recover each hit's source spline and t
+    int dcurvenet::raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, std::vector<Utils::projData>& hits, double tol) const {
+        std::vector<Utils::projData> pHits;
+        if (polynet::raycast(origin, direc, pHits, tol) != 1) {
+            return -1;
+        }
+
+        hits.clear();
+        hits.reserve(pHits.size());
+        for (const Utils::projData& pHit : pHits) {
+            if (pHit.elType != 1 || pHit.elIdx < 0 || pHit.elIdx >= edgeSpline.size()) {
+                continue;
+            }
+            double local_t = pHit.coords(0);
+            Utils::projData hit;
+            hit.elType = 1;
+            hit.elIdx = edgeSpline[pHit.elIdx];
+            hit.pos = pHit.pos;
+            hit.coords.resize(1);
+            hit.coords(0) = (1.0 - local_t) * edgeSplineT[pHit.elIdx].first + local_t * edgeSplineT[pHit.elIdx].second;
+            hits.push_back(hit);
+        }
+
+        return hits.empty() ? -1 : 1;
+    }
+
+    bool dcurvenet::isPositiveHalfedge(int he) const {
+        return E[HE[he].edge].he == he;
     }
 }   // namespace Polynet

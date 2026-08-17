@@ -1,6 +1,7 @@
 // mesh_types.hpp
 #pragma once
 
+#include "utils/utils.hpp"
 #include <Eigen/Core>
 #include <vector>
 
@@ -24,25 +25,6 @@ namespace Mesh {
         bool operator<(const BVHQueueEntry& other) const {
             return dist2 > other.dist2; // reversed for std::priority_queue min-heap behavior
         }
-    };
-
-    // Heavier projection sample data for curvenet/dcurvenet purposes
-    struct meshBindData {
-        int elType = -1;
-        int elIdx = -1;
-        Eigen::VectorXd coords;  // MVC, or t-val on an edge, or 
-        // Projection vector
-        Eigen::Vector3d proj = Eigen::Vector3d::Zero(); // Projection location
-        Eigen::Vector3d offset = Eigen::Vector3d::Zero();   // Projection offset vector
-
-        // Rest frame at bind time
-        Eigen::Matrix3d restFrame = Eigen::Matrix3d::Identity();
-    };
-
-    // Tags which mesh element a point currently sits on (vertex/edge/face)
-    struct vertProjData {
-        int elType = -1;
-        int elIdx = -1;
     };
 
     struct Vert {

@@ -988,6 +988,192 @@ Eigen::Vector3d closestPointOnSegment3D(const Eigen::Vector3d& p, const Eigen::V
     return v0 + t * vec;
 }
 
+// RAYCASTING
+int sortRayHits(std::vector<projData>& hits, const Eigen::Vector3d& origin, const Eigen::Vector3d& direc) {
+    if (hits.empty()) {
+        return -1;
+    }
+    std::sort(hits.begin(), hits.end(), [&](const projData& a, const projData& b) {
+        return (a.pos - origin).dot(direc) < (b.pos - origin).dot(direc);
+    });
+    return 1;
+}
+
+bool rayTriangleIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                          const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, const Eigen::Vector3d& v2, double& t) {
+    const double eps = 1e-10;
+    Eigen::Vector3d e1 = v1 - v0;
+    Eigen::Vector3d e2 = v2 - v0;
+    Eigen::Vector3d pvec = direc.cross(e2);
+    double det = e1.dot(pvec);
+    if (std::abs(det) < eps) {   // Parallel to the triangle's plane
+        return false;
+    }
+    double invDet = 1.0 / det;
+    Eigen::Vector3d tvec = origin - v0;
+    double u = tvec.dot(pvec) * invDet;
+    if (u < 0.0 || u > 1.0) {
+        return false;
+    }
+    Eigen::Vector3d qvec = tvec.cross(e1);
+    double v = direc.dot(qvec) * invDet;
+    if (v < 0.0 || u + v > 1.0) {
+        return false;
+    }
+    t = e2.dot(qvec) * invDet;
+    return t >= 0.0;
+}
+
+bool rayAABBIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                      const Eigen::Vector3d& bmin, const Eigen::Vector3d& bmax, double tol) {
+    double tMin = 0.0;
+    double tMax = std::numeric_limits<double>::infinity();
+    for (int i = 0; i < 3; i++) {
+        double lo = bmin(i) - tol;
+        double hi = bmax(i) + tol;
+        if (std::abs(direc(i)) < 1e-12) {   // Ray parallel to this slab: must already be inside it
+            if (origin(i) < lo || origin(i) > hi) {
+                return false;
+            }
+            continue;
+        }
+        double invD = 1.0 / direc(i);
+        double t0 = (lo - origin(i)) * invD;
+        double t1 = (hi - origin(i)) * invD;
+        if (t0 > t1) {
+            std::swap(t0, t1);
+        }
+        tMin = std::max(tMin, t0);
+        tMax = std::min(tMax, t1);
+        if (tMin > tMax) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Classic closest-points-between-two-lines derivation, clamped to the ray/segment domains
+double closestApproachRaySegment(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                                 const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, double& t, double& s) {
+    const Eigen::Vector3d& d1 = direc;
+    Eigen::Vector3d d2 = v1 - v0;
+    Eigen::Vector3d r = origin - v0;
+
+    double a = d1.dot(d1);
+    double e = d2.dot(d2);
+    double f = d2.dot(r);
+
+    if (a <= 1e-16 && e <= 1e-16) {
+        t = 0.0;
+        s = 0.0;
+    } else if (a <= 1e-16) {
+        t = 0.0;
+        s = std::clamp(f / e, 0.0, 1.0);
+    } else {
+        double c = d1.dot(r);
+        if (e <= 1e-16) {
+            s = 0.0;
+            t = std::max(0.0, -c / a);
+        } else {
+            double b = d1.dot(d2);
+            double denom = a * e - b * b;
+            s = (std::abs(denom) > 1e-16) ? std::clamp((b * c - a * f) / denom, 0.0, 1.0) : 0.0;
+            t = (b * s - c) / a;
+            if (t < 0.0) {   // Closest point behind the ray origin: re-clamp on the segment alone
+                t = 0.0;
+                s = std::clamp(f / e, 0.0, 1.0);
+            }
+        }
+    }
+    Eigen::Vector3d closestOnRay = origin + t * d1;
+    Eigen::Vector3d closestOnSeg = v0 + s * d2;
+    return (closestOnRay - closestOnSeg).norm();
+}
+
+bool rayPlaneIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                       const Eigen::Vector3d& planePoint, const Eigen::Vector3d& planeNormal, double& t) {
+    double denom = direc.dot(planeNormal);
+    if (std::abs(denom) < 1e-12) {
+        return false;
+    }
+    t = (planePoint - origin).dot(planeNormal) / denom;
+    return t >= 0.0;
+}
+
+// Rewrite the ray in terms of a selected basis and pick an intersection orthogonal to both bases along the ray
+// Potentially finds multiple roots
+int rayBilinearPatchIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                              const std::vector<Eigen::Vector3d>& patchVerts, std::vector<Eigen::Vector3d>& hits) {
+    hits.clear();
+    if (patchVerts.size() != 4) {
+        return -1;
+    }
+    const double eps = 1e-10;
+
+    Eigen::Vector3d a = patchVerts[0];
+    Eigen::Vector3d b = patchVerts[1] - patchVerts[0];
+    Eigen::Vector3d c = patchVerts[3] - patchVerts[0];
+    Eigen::Vector3d d = patchVerts[0] - patchVerts[1] + patchVerts[2] - patchVerts[3];
+    Eigen::Vector3d ao = a - origin;
+
+    Eigen::Vector3d t1, t2;
+    buildPlaneBasis(direc, t1, t2);
+
+    double A0 = ao.dot(t1), B0 = b.dot(t1), C0 = c.dot(t1), D0 = d.dot(t1);
+    double A1 = ao.dot(t2), B1 = b.dot(t2), C1 = c.dot(t2), D1 = d.dot(t2);
+
+    double alpha = C1 * D0 - D1 * C0;
+    double beta  = A1 * D0 - B1 * C0 + C1 * B0 - D1 * A0;
+    double gamma = A1 * B0 - B1 * A0;
+
+    std::vector<double> vRoots;
+    if (std::abs(alpha) < eps) {
+        if (std::abs(beta) > eps) {
+            vRoots.push_back(-gamma / beta);
+        }
+    } else {
+        double disc = beta * beta - 4.0 * alpha * gamma;
+        if (disc >= 0.0) {
+            double sq = std::sqrt(disc);
+            vRoots.push_back((-beta + sq) / (2.0 * alpha));
+            vRoots.push_back((-beta - sq) / (2.0 * alpha));
+        }
+    }
+
+    for (double v : vRoots) {
+        if (v < -eps || v > 1.0 + eps) {
+            continue;
+        }
+        double denomU = B0 + D0 * v;
+        double denomAlt = B1 + D1 * v;
+        double u;
+        if (std::abs(denomU) >= std::abs(denomAlt)) {
+            if (std::abs(denomU) < eps) {
+                continue;
+            }
+            u = -(A0 + C0 * v) / denomU;
+        } else {
+            if (std::abs(denomAlt) < eps) {
+                continue;
+            }
+            u = -(A1 + C1 * v) / denomAlt;
+        }
+        if (u < -eps || u > 1.0 + eps) {
+            continue;
+        }
+        u = std::clamp(u, 0.0, 1.0);
+        double vClamped = std::clamp(v, 0.0, 1.0);
+        Eigen::Vector3d p = a + u * b + vClamped * c + u * vClamped * d;
+        double t = (p - origin).dot(direc);
+        if (t < 0.0) {
+            continue;
+        }
+        hits.push_back({u, vClamped, t});
+    }
+
+    return hits.empty() ? -1 : 1;
+}
+
 // MEAN VALUE COORDINATES
 // Compute angle between any two 2D vectors given the four endpoints
 // Vectors are computed as p1 - p0, p3 - p2

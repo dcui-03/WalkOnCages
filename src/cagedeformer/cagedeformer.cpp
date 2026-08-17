@@ -88,7 +88,7 @@ namespace CageDeformer {
             }
             query_num_success[q] = std::max(num_success, 0);
 
-            solveAlpha(q, queries[q].pos, queries[q].samples);
+            solveAlpha(q, queries[q].samples);
         }
 
         // Report average successes per query, then fail if any query got zero
@@ -104,7 +104,16 @@ namespace CageDeformer {
                 return -1;
             }
         }
+
+        // Smooth gradX/gradY/gradZ/beta if possible, then rebuild coords from u_x's components
+        // at each query's own position regardless of whether smoothing succeeded
         applySmoothing(num_samples);
+        for (int v = 0; v < coords.cols(); v++) {
+            coords.col(v) = (gradX.col(v).array() * query_pos.col(0).array()
+                            + gradY.col(v).array() * query_pos.col(1).array()
+                            + gradZ.col(v).array() * query_pos.col(2).array()
+                            + beta.col(v).array()).matrix();
+        }
         return 1;
     }
 
@@ -115,28 +124,26 @@ namespace CageDeformer {
         for (int s = 0; s < max_samples; s++) {
             // Launch a WoS walk, until we get at least num_samples samples.
             // The first hop is stratified across attempts to reduce clustering; the rest of the walk is genuinely random.
-            int elType, elIdx;
-            Eigen::Vector3d proj;
-            Eigen::VectorXd wos_coords;
-            if (def_cage->closestPoint(q_pos, elType, elIdx, proj, wos_coords) != 1) {
+            Utils::projData hit;
+            if (def_cage->closestPoint(q_pos, hit) != 1) {
                 continue;
             }
-            double d0 = (proj - q_pos).norm();
+            double d0 = (hit.pos - q_pos).norm();
             int success;
-            if (d0 <= eps) {
+            if (d0 <= eps) {    // Our start is already within the eps range of the cage
                 success = 1;
-            } else {
+            } else {    // Otherwise, we actually need to walk
                 Eigen::Vector3d firstDirec;
                 WoS::stratifySamples(s, firstDirec);
                 Eigen::Vector3d p1 = q_pos + d0 * firstDirec;
-                success = WoS::WalkOnSpheres(p1, def_cage, elType, elIdx, proj, wos_coords, gen, 1, 60, eps);
+                success = WoS::WalkOnSpheres(p1, def_cage, hit, gen, 1, 60, eps);
             }
             if (success != 1) { // Failed, continue
                 continue;
             }
             Sample y;
-            y.pos = proj;
-            y.bases = def_cage->computeBasis(elType, elIdx, wos_coords);
+            y.pos = hit.pos;
+            y.bases = def_cage->computeBasis(hit);
             y.weight = 1.0;    // Harmonic weights implicitly weight via poisson kernel
             samples.push_back(y);
             num_success++;
@@ -147,18 +154,93 @@ namespace CageDeformer {
         return num_success;
     }
 
-    // MVC: not yet implemented, needs cage raycasting
+    // Compute MVC weights
     int cagedeformer::computeMVCoordinates(const Eigen::Vector3d& q_pos, int num_samples, int max_samples, std::mt19937& gen, std::vector<Sample>& samples) {
-        return -1;
+        int num_success = 0;
+        double eps = 1e-3 * def_cage->bboxDiag();
+        for (int s = 0; s < max_samples; s++) {
+            // Get a set of hits
+            std::vector<Utils::projData> hits;
+            Eigen::Vector3d direc;
+            // Generate a random sample
+            if (def_cage->sampleDirection(q_pos, gen, direc) != 1) {
+                continue;
+            };
+            // Raycast to get samples
+            if (def_cage->raycast(q_pos, direc, hits, eps) != 1) {
+                continue;   // No hits... spin the wheel
+            }
+            // For each hit, compute its weight
+            // Since hits are already sorted in ascending order, we don't need to re-sort for parity
+            for (int h = 0; h < hits.size(); h++) {
+                Sample y;
+                double dist = (hits[h].pos - q_pos).norm();
+                dist = std::max(dist, 1e-6);    // Safety clamp
+                y.pos = hits[h].pos;
+                y.bases = def_cage->computeBasis(hits[h]);
+                y.weight = double(std::pow(-1, h)) / dist;
+                samples.push_back(y);
+            }
+            num_success++;
+            if (num_success >= num_samples) {
+                break;
+            }
+        }
+        return num_success;
     }
 
-    // Positive MVC: not yet implemented, needs cage raycasting
+    // Compute positive MVC weights
     int cagedeformer::computePositiveMVCoordinates(const Eigen::Vector3d& q_pos, int num_samples, int max_samples, std::mt19937& gen, std::vector<Sample>& samples) {
-        return -1;
+        int num_success = 0;
+        double eps = 1e-3 * def_cage->bboxDiag();
+        for (int s = 0; s < max_samples; s++) {
+            // Get a set of hits
+            std::vector<Utils::projData> hits;
+            Eigen::Vector3d direc;
+            // Generate a random sample
+            if (def_cage->sampleDirection(q_pos, gen, direc) != 1) {
+                continue;
+            };
+            // Raycast to get samples
+            if (def_cage->raycast(q_pos, direc, hits, eps) != 1) {
+                continue;   // No hits, spin the wheel...
+            }
+            // Compute parity first
+            int sub_samples = hits.size() % 2;
+            // For each hit, compute its weight
+            // Since hits are already sorted in ascending order, we don't need to re-sort for parity
+            for (int h = 0; h < sub_samples; h++) {
+                Sample y;
+                double dist = (hits[h].pos - q_pos).norm();
+                dist = std::max(dist, 1e-6);    // Safety clamp
+                y.pos = hits[h].pos;
+                y.bases = def_cage->computeBasis(hits[h]);
+                y.weight = double(std::pow(-1, h)) / dist;
+                samples.push_back(y);
+            }
+            num_success++;
+            if (num_success >= num_samples) {
+                break;
+            }
+        }
+        return num_success;
     }
 
-    // Solve for alpha_v using M and m_v
-    void cagedeformer::solveAlpha(int q, const Eigen::Vector3d& q_pos, const std::vector<Sample>& samples) {
+    // Ask the cage for a random direction from q_pos, raycast against it, and return the sorted hits
+    int cagedeformer::computeRandomSamples(const Eigen::Vector3d& q_pos, std::mt19937& gen, std::vector<Utils::projData>& hits) {
+        double eps = 1e-3 * def_cage->bboxDiag();
+        Eigen::Vector3d direc;
+        if (def_cage->sampleDirection(q_pos, gen, direc) != 1) {
+            return -1;
+        }
+        if (def_cage->raycast(q_pos, direc, hits, eps) != 1) {
+            return -1;
+        }
+        return Utils::sortRayHits(hits, q_pos, direc);
+    }
+
+    // Solve for gradX/gradY/gradZ/beta (the components of u_x) at query q
+    void cagedeformer::solveAlpha(int q, const std::vector<Sample>& samples) {
         Eigen::Matrix4d M;
         M.setZero();
         for (const Sample& y : samples) {
@@ -182,11 +264,9 @@ namespace CageDeformer {
             }
         }
 
-        // Compute the alpha value for each v, along with its gradient (the linear part of u_x)
-        Eigen::Vector4d homog_q = {q_pos[0], q_pos[1], q_pos[2], 1};
+        // Compute the components of u_x (its gradient, plus the homogeneous/intercept term) for each v
         for (const auto& [v, m_vx] : m_v) {
             Eigen::Vector4d u_x = M_cod.solve(m_vx);
-            coords(q, v) = homog_q.transpose() * u_x;
             gradX(q, v) = u_x(0);
             gradY(q, v) = u_x(1);
             gradZ(q, v) = u_x(2);
@@ -195,7 +275,7 @@ namespace CageDeformer {
         return;
     }
 
-    // Smooth gradX/gradY/gradZ/beta, then rebuild coords at each query's own position
+    // Smooth gradX/gradY/gradZ/beta
     int cagedeformer::applySmoothing(int num_samples) {
         if (def_query->computeSmoothingOp(num_samples) != 1) {
             return -1;
@@ -222,16 +302,6 @@ namespace CageDeformer {
         }
         beta = result;
 
-        Eigen::MatrixXd query_pos;
-        if (def_query->matrixVerts(query_pos) != 1 || query_pos.rows() != coords.rows()) {
-            return -1;
-        }
-        for (int v = 0; v < coords.cols(); v++) {
-            coords.col(v) = (gradX.col(v).array() * query_pos.col(0).array()
-                            + gradY.col(v).array() * query_pos.col(1).array()
-                            + gradZ.col(v).array() * query_pos.col(2).array()
-                            + beta.col(v).array()).matrix();
-        }
         return 1;
     }
 

@@ -3,6 +3,7 @@
 
 #include "curvenet_types.hpp"
 #include "mesh/mesh.hpp"
+#include "utils/utils.hpp"
 #include <Eigen/Core>
 #include <vector>
 #include <array>
@@ -32,6 +33,7 @@ class curvenet {
 
         // --------- GETTERS -----------
         const int numCurves() const { return Crv.size(); }
+        const int numSplines() const { return S.size(); }
         // TODO: REMOVE the below getters and use friend classes instead
         const std::vector<Control>& controls() const { return C; }
         std::vector<int> controlLocalSplineIdx(int c, int s) const;
@@ -80,9 +82,13 @@ class curvenet {
         // --------- CLOSEST POINT -----------
         // Find the closest point on the curve network to p, via dCN's polyline BVH, then
         // evaluated exactly on the spline. Not refined past that; caller does the Newton step.
-        int closestPoint(const Eigen::Vector3d& p, const Polynet::dcurvenet* dCN, cnBindData& bind, bool snap = true, double snapTol = 1e-6) const;
+        int closestPoint(const Eigen::Vector3d& p, const Polynet::dcurvenet* dCN, Utils::projData& bind, bool snap = true, double snapTol = 1e-6) const;
         // Newton iterations to refine an initial guess t-value to get true closest point
         double optimizeT(double t, int s, const Eigen::Vector3d& p, int max_iter = 10) const;
+
+        // --------- RAYCAST -----------
+        // Cast a ray against the curve network via dCN's polyline BVH, refining each hit onto the true spline
+        int raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, const Polynet::dcurvenet* dCN, std::vector<Utils::projData>& hits, double tol) const;
 
         // Get bounding box diagonal length
         double getBBoxDiag() const;
@@ -131,8 +137,8 @@ class curvenet {
         std::vector<Curve> Crv;
 
         // Mesh-projection data, parallel to C and HE respectively (empty if no mesh is used)
-        std::vector<projData> vertData;
-        std::vector<projData> tanData;
+        std::vector<Utils::frameData> vertData;
+        std::vector<Utils::frameData> tanData;
 
         // Map from input control index to output control index
         std::map<int, int> inputCtoC;

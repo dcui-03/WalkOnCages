@@ -1,29 +1,13 @@
 // curvenet_types.hpp
 #pragma once
 
+#include "utils/utils.hpp"
 #include <Eigen/Core>
 #include <vector>
 
 // File with basic structs used by mesh class
 
 namespace Curvenet {
-
-    // Result of a closest-point query against the curve network
-    struct cnBindData {
-        int s = -1;                     // Spline index
-        double t = -1.0;                // Parameter value on that spline
-        Eigen::Vector3d pos;            // Point on the spline at t
-    };
-
-    // Projection data onto the corresponding mesh for tangents and handles
-    struct projData {
-        int elType = -1;
-        int elIdx = -1;
-        Eigen::VectorXd coords;
-        Eigen::Vector3d projVec = Eigen::Vector3d::Zero();
-        // Local coordinate frame at projection point
-        Eigen::Matrix3d projFrame = Eigen::Matrix3d::Identity();
-    };
 
     // Control vertices
     // NOTE: Each control stores an (ordered) list of outgoing halfedges

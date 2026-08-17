@@ -112,6 +112,47 @@ namespace Utils {
 
     Eigen::Vector3d closestPointOnSegment3D(const Eigen::Vector3d& p, const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, bool clip = true);
 
+    // PROJECTION / HIT DATA
+    // Which element a point landed on, its local coords (scalar t stored as coords(0)), and the resulting position
+    struct projData {
+        int elType = -1;
+        int elIdx = -1;
+        Eigen::VectorXd coords;
+        Eigen::Vector3d pos = Eigen::Vector3d::Zero();
+    };
+
+    // A projData plus mesh-binding extras: offset from the original point, and the local frame at the projection
+    struct frameData {
+        projData proj;
+        Eigen::Vector3d offset = Eigen::Vector3d::Zero();
+        Eigen::Matrix3d frame = Eigen::Matrix3d::Identity();
+    };
+
+    // RAYCASTING
+    // Sort hits nearest to furthest along the ray. Returns -1 if hits is empty, 1 otherwise
+    int sortRayHits(std::vector<projData>& hits, const Eigen::Vector3d& origin, const Eigen::Vector3d& direc);
+
+    // Moller-Trumbore ray-triangle intersection. direc must be unit length. Only accepts t >= 0
+    bool rayTriangleIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                              const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, const Eigen::Vector3d& v2, double& t);
+
+    // Slab test against an AABB padded by tol on all sides. Exact pruning, no false negatives
+    bool rayAABBIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                          const Eigen::Vector3d& bmin, const Eigen::Vector3d& bmax, double tol = 0.0);
+
+    // Closest approach between a ray (t >= 0, direc unit length) and a segment (s in [0, 1]). Returns the separation distance
+    double closestApproachRaySegment(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                                     const Eigen::Vector3d& v0, const Eigen::Vector3d& v1, double& t, double& s);
+
+    // Ray-plane intersection, given any point on the plane and its normal. Only accepts t >= 0
+    bool rayPlaneIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                           const Eigen::Vector3d& planePoint, const Eigen::Vector3d& planeNormal, double& t);
+
+    // Closed-form ray/bilinear-patch intersection (0-2 real roots, doubly-ruled surfaces can be hit twice).
+    // Each hit row is (u, v, t), u/v in [0, 1], t >= 0. Returns -1 if none found, 1 otherwise
+    int rayBilinearPatchIntersect(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc,
+                                  const std::vector<Eigen::Vector3d>& patchVerts, std::vector<Eigen::Vector3d>& hits);
+
     // MEAN VALUE COORDINATES
     // Helpers
     double vectorAngle(const Eigen::Vector2d& p0, const Eigen::Vector2d& p1, const Eigen::Vector2d& p2, const Eigen::Vector2d& p3);

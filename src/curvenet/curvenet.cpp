@@ -145,18 +145,14 @@ namespace Curvenet {
             if (!C[c].active) {
                 continue;
             }
-            Mesh::meshBindData bindData;
+            Utils::frameData bindData;
             if (m.computeVBinding(C[c].pos, bindData) != 1) {
                 throw std::runtime_error("curvenet::ctrlProjDataFromMesh(): invalid bind data");
             }
-            Eigen::Vector3d n = m.getNormal(bindData.elType, bindData.elIdx);
+            Eigen::Vector3d n = m.getNormal(bindData.proj.elType, bindData.proj.elIdx);
             // Copy over data
             editControlN(c, n);
-            vertData[c].elType = bindData.elType;
-            vertData[c].elIdx = bindData.elIdx;
-            vertData[c].coords = bindData.coords;
-            vertData[c].projVec = bindData.offset;
-            vertData[c].projFrame = bindData.restFrame;
+            vertData[c] = bindData;
         }
         setMesh = true;
         return 1;
@@ -169,16 +165,12 @@ namespace Curvenet {
             if (!HE[he].active) {
                 continue;
             }
-            Mesh::meshBindData bindData;
+            Utils::frameData bindData;
             if (m.computeVBinding(HE[he].rest_tan, bindData) != 1) {
                 throw std::runtime_error("curvenet::tanProjDataFromMesh(): invalid bind data");
             }
             // Copy over data
-            tanData[he].elType = bindData.elType;
-            tanData[he].elIdx = bindData.elIdx;
-            tanData[he].coords = bindData.coords;
-            tanData[he].projVec = bindData.offset;
-            tanData[he].projFrame = bindData.restFrame;
+            tanData[he] = bindData;
         }
         setMesh = true;
         return 1;
@@ -408,7 +400,7 @@ namespace Curvenet {
     }
 
     // Find the closest point on the curve network to p, via dCN's polyline BVH
-    int curvenet::closestPoint(const Eigen::Vector3d& p, const Polynet::dcurvenet* dCN, cnBindData& bind, bool snap, double snapTol) const {
+    int curvenet::closestPoint(const Eigen::Vector3d& p, const Polynet::dcurvenet* dCN, Utils::projData& bind, bool snap, double snapTol) const {
         if (dCN == nullptr) {
             return -1;
         }
@@ -416,9 +408,9 @@ namespace Curvenet {
             return -1;
         }
         // Optimize t based on the locally guess
-        bind.t = optimizeT(bind.t, bind.s, p);
+        bind.coords(0) = optimizeT(bind.coords(0), bind.elIdx, p);
         // Compute the explicit position
-        bind.pos = tSampleBezier(bind.s, bind.t);
+        bind.pos = tSampleBezier(bind.elIdx, bind.coords(0));
         return 1;
     }
 
@@ -443,6 +435,22 @@ namespace Curvenet {
             }
         }
         return curr_t;
+    }
+
+    // Cast a ray against dCN's polyline BVH, then Newton-refine each hit onto its true spline
+    int curvenet::raycast(const Eigen::Vector3d& origin, const Eigen::Vector3d& direc, const Polynet::dcurvenet* dCN, std::vector<Utils::projData>& hits, double tol) const {
+        if (dCN == nullptr) {
+            return -1;
+        }
+        if (dCN->raycast(origin, direc, hits, tol) != 1) {
+            return -1;
+        }
+        for (Utils::projData& hit : hits) {
+            int s = hit.elIdx;
+            hit.coords(0) = optimizeT(hit.coords(0), s, hit.pos);
+            hit.pos = tSampleBezier(s, hit.coords(0));
+        }
+        return 1;
     }
 
     // Evaluate basis functions on a spline
