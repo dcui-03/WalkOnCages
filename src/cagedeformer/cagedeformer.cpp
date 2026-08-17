@@ -94,18 +94,33 @@ namespace CageDeformer {
                 return -1;
             }
         }
+        applySmoothing();    // Apply smoothing
         return 1;
     }
 
     // Harmonic coordinates: WoS random walks, boundary hit weighted uniformly
     int cagedeformer::computeHarmonicCoordinates(const Eigen::Vector3d& q_pos, int num_samples, int max_samples, std::mt19937& gen, std::vector<Sample>& samples) {
         int num_success = 0;
+        double eps = 1e-3 * def_cage->bboxDiag();
         for (int s = 0; s < max_samples; s++) {
-            // Launch a WoS walk, until we get at least num_samples samples
+            // Launch a WoS walk, until we get at least num_samples samples.
+            // The first hop is stratified across attempts to reduce clustering; the rest of the walk is genuinely random.
             int elType, elIdx;
             Eigen::Vector3d proj;
             Eigen::VectorXd wos_coords;
-            int success = WoS::WalkOnSpheres(q_pos, def_cage, elType, elIdx, proj, wos_coords, gen, 0, 60, 1e-3 * def_cage->bboxDiag());
+            if (def_cage->closestPoint(q_pos, elType, elIdx, proj, wos_coords) != 1) {
+                continue;
+            }
+            double d0 = (proj - q_pos).norm();
+            int success;
+            if (d0 <= eps) {
+                success = 1;
+            } else {
+                Eigen::Vector3d firstDirec;
+                WoS::stratifySamples(s, firstDirec);
+                Eigen::Vector3d p1 = q_pos + d0 * firstDirec;
+                success = WoS::WalkOnSpheres(p1, def_cage, elType, elIdx, proj, wos_coords, gen, 1, 60, eps);
+            }
             if (success != 1) { // Failed, continue
                 continue;
             }
@@ -169,14 +184,29 @@ namespace CageDeformer {
         return;
     }
 
-    // Get the smoothing operator from the user
+    // Get the smoothing operator from the user, and apply it to coords and each gradient component
     int cagedeformer::applySmoothing() {
-        // For each column in the coord matrix, apply the smoothing operator (we can do this all at once actually!)
         Eigen::MatrixXd result;
         if (def_query->applySmoothing(coords, result) != 1) {
             return -1;
         }
-        coords = result;    // Apply changes
+        coords = result;
+
+        if (def_query->applySmoothing(gradX, result) != 1) {
+            return -1;
+        }
+        gradX = result;
+
+        if (def_query->applySmoothing(gradY, result) != 1) {
+            return -1;
+        }
+        gradY = result;
+
+        if (def_query->applySmoothing(gradZ, result) != 1) {
+            return -1;
+        }
+        gradZ = result;
+
         return 1;
     }
 

@@ -109,7 +109,7 @@ static polyscope::TransformationGizmo* vertexGizmo = nullptr;
 
 // Pre-computation
 int samplingParam = 5;    // Curvenet discretization density (alpha)
-int num_samples = 20;     // WoS samples per query point
+int num_samples = 50;     // WoS samples per query point
 float offsetParam = 0.5f; // Surface offset applied to newly-created controls
 
 // Discrete curvenet for modeling

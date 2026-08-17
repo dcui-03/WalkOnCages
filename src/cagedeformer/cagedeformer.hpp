@@ -24,12 +24,9 @@ class cagedeformer {
         void applyCage(Cage::cage* C);
         void applyQuery(Query::query* Q);
 
-        // Compute the actual coordinates
+        // Compute the actual coordinates. Smooths automatically on success (see applySmoothing)
         // coordType: 0 is harmonic, 1 is MVC, 2 is positive-MVC
         int computeCoordinates(int coordType = 0, int num_samples = 20, int max_samples = 10000);
-        // The user supplies the correct smoothing operator for the query object
-        // Assuming for now that the operator is sparse (unlikely to be dense)
-        int applySmoothing();
 
         // Apply deformation
         // First, query the new vertex locations, then apply the coords operator
@@ -57,6 +54,10 @@ class cagedeformer {
 
         // Shared moment-fit solve, coordType-agnostic. Writes row q of coords
         void solveAlpha(int q, const Eigen::Vector3d& q_pos, const std::vector<Sample>& samples);
+
+        // The user supplies the correct smoothing operator for the query object
+        // Assuming for now that the operator is sparse (unlikely to be dense)
+        int applySmoothing();
 
         // Coordinates for each vertex as an n x m matrix (i.e., each row is a query; each col is a cage vert)
         Eigen::MatrixXd coords;

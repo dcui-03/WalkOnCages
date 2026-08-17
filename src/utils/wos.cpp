@@ -8,6 +8,20 @@
 #include <cmath>
 
 
+namespace {
+    // Radical inverse (digit-reversal) of index in the given base: the building block of a Halton low-discrepancy sequence
+    double haltonRadicalInverse(int index, int base) {
+        double result = 0.0;
+        double f = 1.0 / base;
+        while (index > 0) {
+            result += f * (index % base);
+            index /= base;
+            f /= base;
+        }
+        return result;
+    }
+}
+
 // Functions for Walk on Spheres sampling
 namespace WoS {
     // Regular Walk on Spheres given a point and a mesh boundary
@@ -45,6 +59,18 @@ namespace WoS {
         std::uniform_real_distribution<double> z_dist(-1.0, 1.0);
         double theta = theta_dist(gen);
         double z = z_dist(gen);
+        double r = std::sqrt(std::max(0.0, 1.0 - z * z));
+
+        newDirec = {r*std::cos(theta), r*std::sin(theta), z};
+        return 1;
+    }
+
+    // Deterministic, well-spread direction for the index-th sample
+    int stratifySamples(int index, Eigen::Vector3d& newDirec) {
+        double u = haltonRadicalInverse(index + 1, 2);
+        double v = haltonRadicalInverse(index + 1, 3);
+        double theta = 2 * M_PI * u;
+        double z = 2.0 * v - 1.0;
         double r = std::sqrt(std::max(0.0, 1.0 - z * z));
 
         newDirec = {r*std::cos(theta), r*std::sin(theta), z};

@@ -20,4 +20,9 @@ namespace WoS {
                            const int iter = 0, const int max_iter = 20, double eps = 1e-6);
 
     int generateNewDirection(Eigen::Vector3d& newDirec, std::mt19937& gen);
+
+    // Deterministic, well-spread direction for the index-th sample (a 2D Halton sequence,
+    // bases 2 and 3, mapped onto the sphere). Used to reduce clustering across a query point's
+    // first-hop directions vs. drawing them i.i.d. at random
+    int stratifySamples(int index, Eigen::Vector3d& newDirec);
 } // namespace WoS
