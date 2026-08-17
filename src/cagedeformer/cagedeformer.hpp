@@ -55,14 +55,15 @@ class cagedeformer {
         // Shared moment-fit solve, coordType-agnostic. Writes row q of coords
         void solveAlpha(int q, const Eigen::Vector3d& q_pos, const std::vector<Sample>& samples);
 
-        // The user supplies the correct smoothing operator for the query object
-        // Assuming for now that the operator is sparse (unlikely to be dense)
-        int applySmoothing();
+        // Smooths gradX/gradY/gradZ/beta, then rebuilds coords from them at each query's own position
+        int applySmoothing(int num_samples);
 
         // Coordinates for each vertex as an n x m matrix (i.e., each row is a query; each col is a cage vert)
         Eigen::MatrixXd coords;
         // Gradient of each coordinate w.r.t. the query position, same shape as coords, split by component
         Eigen::MatrixXd gradX, gradY, gradZ;
+        // Affine intercept of u_x (the 4th, homogeneous component), same shape as coords
+        Eigen::MatrixXd beta;
 
         // Store current coordinate type
         int coordType = 0;

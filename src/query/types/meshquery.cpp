@@ -7,9 +7,8 @@
 
 namespace Query {
 
-// Init with pointer to mesh
+// Init with pointer to mesh. computeSmoothingOp() is called later, once num_samples is known
 meshquery::meshquery(Mesh::mesh* M): M(M) {
-    computeSmoothingOp();
 }
 
 // Get relevant vertices as a matrix
@@ -27,8 +26,8 @@ int meshquery::applySmoothing(const Eigen::MatrixXd& Input, Eigen::MatrixXd& Res
     return 1;
 }
 
-// Get a smoothing operator
-int meshquery::computeSmoothingOp() {
+// Get a smoothing operator. Fewer samples -> noisier estimate -> larger scale_factor
+int meshquery::computeSmoothingOp(int num_samples) {
     Eigen::SparseMatrix<double> L;
     int L_success = M->computeLaplacian(L);
     int A_success = M->computeMass(A);
@@ -37,9 +36,8 @@ int meshquery::computeSmoothingOp() {
         return -1;
     }
     // Compute the t
-    double scale_factor = 5.0 - std::log10(double(M->getNumActiveV()));
+    double scale_factor = 5.0 - std::log10(double(num_samples));
     t = std::max(1.0, scale_factor) * M->getSquaredMeanE();
-    // t = 1e-2 * M->getSquaredMeanE();
     std::cout << "Smoothing timestep: " << t << std::endl;
     std::cout << "Mean Squared Edge Length: " << M->getSquaredMeanE() << std::endl;
     std::cout << "Scaling Factor: " << scale_factor << std::endl;

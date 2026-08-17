@@ -20,9 +20,10 @@ class meshquery : public query {
 
         // Apply smoothing
         virtual int applySmoothing(const Eigen::MatrixXd& Input, Eigen::MatrixXd& Result) override;
-    protected:
+
         // Get a smoothing operator
-        virtual int computeSmoothingOp() override;
+        virtual int computeSmoothingOp(int num_samples) override;
+    protected:
     private:
         // Pointer to mesh object
         Mesh::mesh* M;

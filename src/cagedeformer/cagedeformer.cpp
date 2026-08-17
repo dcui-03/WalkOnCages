@@ -65,6 +65,8 @@ namespace CageDeformer {
         gradY.setZero();
         gradZ.resize(queries.size(), cage_pos.rows());
         gradZ.setZero();
+        beta.resize(queries.size(), cage_pos.rows());
+        beta.setZero();
 
         // Tracks whether each query point got at least one successful sample
         std::vector<char> query_ok(queries.size(), 0);
@@ -94,7 +96,7 @@ namespace CageDeformer {
                 return -1;
             }
         }
-        applySmoothing();    // Apply smoothing
+        applySmoothing(num_samples);
         return 1;
     }
 
@@ -180,18 +182,18 @@ namespace CageDeformer {
             gradX(q, v) = u_x(0);
             gradY(q, v) = u_x(1);
             gradZ(q, v) = u_x(2);
+            beta(q, v) = u_x(3);
         }
         return;
     }
 
-    // Get the smoothing operator from the user, and apply it to coords and each gradient component
-    int cagedeformer::applySmoothing() {
-        Eigen::MatrixXd result;
-        if (def_query->applySmoothing(coords, result) != 1) {
+    // Smooth gradX/gradY/gradZ/beta, then rebuild coords at each query's own position
+    int cagedeformer::applySmoothing(int num_samples) {
+        if (def_query->computeSmoothingOp(num_samples) != 1) {
             return -1;
         }
-        coords = result;
 
+        Eigen::MatrixXd result;
         if (def_query->applySmoothing(gradX, result) != 1) {
             return -1;
         }
@@ -207,6 +209,21 @@ namespace CageDeformer {
         }
         gradZ = result;
 
+        if (def_query->applySmoothing(beta, result) != 1) {
+            return -1;
+        }
+        beta = result;
+
+        Eigen::MatrixXd query_pos;
+        if (def_query->matrixVerts(query_pos) != 1 || query_pos.rows() != coords.rows()) {
+            return -1;
+        }
+        for (int v = 0; v < coords.cols(); v++) {
+            coords.col(v) = (gradX.col(v).array() * query_pos.col(0).array()
+                            + gradY.col(v).array() * query_pos.col(1).array()
+                            + gradZ.col(v).array() * query_pos.col(2).array()
+                            + beta.col(v).array()).matrix();
+        }
         return 1;
     }
 

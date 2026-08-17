@@ -18,10 +18,10 @@ class query {
 
         // Apply smoothing
         virtual int applySmoothing(const Eigen::MatrixXd& Input, Eigen::MatrixXd& Result) = 0;
-    protected:
-        // Get a smoothing operator
-        virtual int computeSmoothingOp() = 0;
 
+        // (Re)compute the smoothing operator; num_samples scales its strength
+        virtual int computeSmoothingOp(int num_samples) = 0;
+    protected:
         bool smoothAvailable = false;
     private:
         // Pointer to query object

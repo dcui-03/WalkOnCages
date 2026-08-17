@@ -10,7 +10,7 @@ int query::applySmoothing(const Eigen::MatrixXd& Input, Eigen::MatrixXd& Result)
     return -1;
 }
 
-int query::computeSmoothingOp() {
+int query::computeSmoothingOp(int num_samples) {
     return -1;
 }
 
