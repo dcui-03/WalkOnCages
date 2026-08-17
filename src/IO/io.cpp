@@ -1,6 +1,9 @@
 #include "io.hpp"
 
 #include <vector>
+#include <array>
+#include <set>
+#include <utility>
 #include <Eigen/Dense>
 #include <string>
 #include <fstream>
@@ -16,7 +19,7 @@ namespace IO {
         }
 
         // Extract substring before first '/'
-        size_t slashPos = token.find('/');
+        auto slashPos = token.find('/');
         std::string vStr = (slashPos == std::string::npos) ? token : token.substr(0, slashPos);
 
         if (vStr.empty()) {
@@ -125,5 +128,26 @@ namespace IO {
         }
 
         return true;
+    }
+
+    // Extracts the unique undirected edges of a face list, for wireframe display
+    void facesToWireframe(
+        const std::vector<std::vector<int>>& F,
+        std::vector<std::array<int, 2>>& E
+    ) {
+        E.clear();
+        std::set<std::pair<int, int>> seen;
+        for (const std::vector<int>& face : F) {
+            int n = static_cast<int>(face.size());
+            for (int i = 0; i < n; i++) {
+                int a = face[i];
+                int b = face[(i + 1) % n];
+                std::pair<int, int> key = (a < b) ? std::make_pair(a, b) : std::make_pair(b, a);
+                if (seen.insert(key).second) {
+                    E.push_back({a, b});
+                }
+            }
+        }
+        return;
     }
 } // namespace IO

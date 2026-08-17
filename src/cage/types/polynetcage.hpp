@@ -24,6 +24,12 @@ class polynetcage : public cage {
 
         // Function for computing basis of mesh element
         virtual std::vector<std::pair<int, double>> computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) override;
+
+        // Debug colors: direction from the centroid of all verts, remapped to [0,1]
+        virtual int computeColors(Eigen::MatrixXd& Colors) override;
+
+        // Get bounding box diagonal length
+        virtual double bboxDiag() const override;
     protected:
 
     private:

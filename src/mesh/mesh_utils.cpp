@@ -548,7 +548,7 @@ int mesh::evaluateBasis(const vertProjData& proj, const Eigen::VectorXd& coords,
 // Compute the mesh laplacian on verts
 int mesh::computeLaplacian(Eigen::SparseMatrix<double>& L) {
     // Gather vertices into a vector
-    std::vector<int> Verts(V.size());
+    std::vector<Eigen::Vector3d> Verts(V.size());
     std::vector<std::vector<int>> Faces(F.size());
     for (int v = 0; v < V.size(); v++) {
         Verts[v] = V[v].pos;
@@ -577,6 +577,16 @@ int mesh::vertsAsMatrix(Eigen::MatrixXd& Verts) {
     for (int v = 0; v < V.size(); v++) {
         Verts.row(v) = V[v].pos.transpose();
     }
+    return 1;
+}
+
+// Directly overwrite a vertex position (no BVH/normal recompute)
+void mesh::setVertPos(int v, const Eigen::Vector3d& pos) {
+    if (v < 0 || v >= V.size()) {
+        return;
+    }
+    V[v].pos = pos;
+    return;
 }
 
 }   // namespace Mesh

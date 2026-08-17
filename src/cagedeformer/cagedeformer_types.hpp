@@ -1,9 +1,9 @@
-// curvenet_types.hpp
+// cagedeformer_types.hpp
 #pragma once
 
 #include <Eigen/Core>
 #include <vector>
-#include <pair>
+#include <utility>
 
 // File with basic structs used by mesh class
 
@@ -14,10 +14,11 @@ namespace CageDeformer {
         Eigen::Vector3d pos;
         std::vector<std::pair<int, double>> bases;
         double weight;
-    }
+    };
 
     struct QueryVert {
+        Eigen::Vector3d pos;
         std::vector<Sample> samples;
-    }
+    };
 
-}   // namespace Curvenet
+}   // namespace CageDeformer

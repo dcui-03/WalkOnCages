@@ -3,6 +3,7 @@
 
 #include "mesh_types.hpp"
 #include <Eigen/Core>
+#include <Eigen/Sparse>
 #include <Eigen/StdVector>
 #include <vector>
 #include <map>
@@ -42,6 +43,8 @@ class mesh {
         int computeMass(Eigen::VectorXd& A);
         // Get verts as a matrix
         int vertsAsMatrix(Eigen::MatrixXd& Verts);
+        // Directly overwrite a vertex position (no BVH/normal recompute)
+        void setVertPos(int v, const Eigen::Vector3d& pos);
 
         // Getters
         Eigen::Vector3d getNormal(vertProjData projData) const;
@@ -54,6 +57,8 @@ class mesh {
         // Get mean edge length
         double getMeanE() const;
         double getSquaredMeanE() const;
+        // Get bounding box diagonal length
+        double getBBoxDiag() const;
 
         friend class cutmesh;   // Let cutmesh read its internals :)
 

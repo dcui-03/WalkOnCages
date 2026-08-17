@@ -40,6 +40,9 @@ class polynet {
         int vertsAsMatrix(Eigen::MatrixXd& Verts);
         int evaluateBasis(int elType, int elIdx, double t, std::vector<std::pair<int, double>>& basis);
 
+        // Get bounding box diagonal length
+        double getBBoxDiag() const;
+
     protected:
         // --------- INITIALIZATION -----------
         // Add a vertex given its parameters
@@ -67,6 +70,8 @@ class polynet {
         int buildBVHNode(const std::vector<int>& edges, int depth);
         // Squared distance from a point to an AABB
         double pointAABBDist2(const Eigen::Vector3d& p, int box) const;
+        // Compute the length of the diagonal of the bounding box
+        void computeBBoxDiag();
 
         // Attributes as lists
         std::vector<Vert> V;
@@ -80,6 +85,9 @@ class polynet {
         // BVH over edges
         std::vector<AABB> BVH;
         int max_depth = 16;
+
+        // AABB Diagonal length
+        double bboxDiag = 0.0;
 };
 
 }   // namespace Polynet

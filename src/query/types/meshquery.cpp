@@ -8,15 +8,9 @@
 namespace Query {
 
 // Init with pointer to mesh
-meshquery::meshquery(Mesh::mesh* M);
-
-// Get relevant vertices as a matrix
-int meshquery::matrixVerts(Eigen::MatrixXd& Verts) {
-    int success = computeSmoothingOp();
-    if (success != 1) {
-        std::cout << "No available smoothing operator, or construction failed. Using without smoothing." << std::endl;
-    }
-};
+meshquery::meshquery(Mesh::mesh* M): M(M) {
+    computeSmoothingOp();
+}
 
 // Get relevant vertices as a matrix
 int meshquery::matrixVerts(Eigen::MatrixXd& Verts) {
@@ -43,12 +37,12 @@ int meshquery::computeSmoothingOp() {
         return -1;
     }
     // Compute the t
-    double t = std::max(1.0, 5.0 - std::log10(double(M->getNumActiveV()))) * M->getSquaredMeanE();
-    Eigen::SparseMatrix<double> LHS = A + t * L;
+    t = std::max(1.0, 5.0 - std::log10(double(M->getNumActiveV()))) * M->getSquaredMeanE();
+    Eigen::SparseMatrix<double> LHS = Eigen::SparseMatrix<double>(A.asDiagonal()) + t * L;
     AtL_inv.analyzePattern(LHS);
     AtL_inv.factorize(LHS);
     smoothAvailable = true;
     return 1;
-};
+}
 
 }   // namespace Query

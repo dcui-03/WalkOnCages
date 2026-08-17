@@ -9,6 +9,8 @@
 #include <iostream>
 #include <string>
 #include <cmath>
+#include <cctype>
+#include <algorithm>
 #include <tuple>
 #include <array>
 #include <vector>
@@ -21,6 +23,10 @@
 
 // My files
 #include "cagedeformer/cagedeformer.hpp"
+#include "cage/types/curvenetcage.hpp"
+#include "cage/types/meshcage.hpp"
+#include "query/types/meshquery.hpp"
+#include "curvenet/curvenet.hpp"
 #include "mesh/mesh.hpp"
 #include "psCurvenet/pscurvenet.hpp"
 #include "utils/utils.hpp"
@@ -36,16 +42,23 @@ Eigen::MatrixXd psMesh_V; // Vertex list
 std::vector<std::vector<int>> psMesh_F; // Face list: Note the inner list has arbitrary size for non-triangle faces
 polyscope::SurfaceMesh* psMesh = nullptr;
 
-// CURVENET (CN)
+// CAGE MESH topology (mesh-cage mode only). The cage is displayed as a wireframe + point
+// cloud (via psEditableCN/psControlsPC below) rather than a surface mesh, so it doesn't
+// visually cover the query mesh.
+std::vector<std::vector<int>> psCageMesh_F;
+std::vector<std::array<int, 2>> psCageWireframe_E;
+
+// CURVENET (CN) / CAGE WIREFRAME (mesh-cage mode)
 Eigen::MatrixXd psCN_P; // Point list
 std::vector<std::array<int, 2>> psCN_E; // Edge List
 polyscope::CurveNetwork* psEditableCN = nullptr;
 
-// CONTROLS (PC)
-// Not sure what we need visualization-wise
+// CONTROLS (PC) / CAGE POINTS (mesh-cage mode). This is the point cloud the user drags in
+// either mode: curvenet controls, or cage mesh vertices.
 Eigen::MatrixXd psControls_P; // Controls
 polyscope::PointCloud* psControlsPC = nullptr;    // point cloud for controls
-// TANGENTS (PC)
+polyscope::PointCloudColorQuantity* psCageColorQ = nullptr; // cage's own colors, for comparison
+// TANGENTS (PC) - curvenet mode only, no equivalent for mesh cages
 Eigen::MatrixXd psTangents_P; // Tangents
 polyscope::PointCloud* psTangentsPC = nullptr;    // point cloud for tangents
 
@@ -54,57 +67,33 @@ Eigen::MatrixXd psTangentsVec; // Aggregate list of controls and tangents
 std::vector<std::array<int, 2>> psTangents_E; // Edge List between controls and tangents
 polyscope::CurveNetwork* psTangentsCN = nullptr;  // Connects controls to their tangents
 
-// DEBUG OBJECTS
-
-// discrete Curvenet
-Eigen::MatrixXd psDCN_P; // Aggregate list of controls and tangents
-std::vector<std::array<int, 2>> psDCN_E; // Edge List between controls and tangents
-polyscope::CurveNetwork* psDCN = nullptr;
-// Local frames
-std::vector<glm::vec3> posScaledTangents;
-std::vector<glm::vec3> posScaledBinormals;
-std::vector<glm::vec3> posScaledNormals;
-std::vector<glm::vec3> negScaledTangents;
-std::vector<glm::vec3> negScaledBinormals;
-std::vector<glm::vec3> negScaledNormals;
-std::vector<double> weights;
-
-// Cutmesh
-Eigen::MatrixXd psCutMesh_V; // Vertex list
-std::vector<std::vector<int>> psCutMesh_F; // Face list: Note the inner list has arbitrary size for non-triangle faces
-polyscope::SurfaceMesh* psCutMesh = nullptr;
-// Local normals
-std::vector<glm::vec3> psCutMesh_VNormals;
-std::vector<glm::vec3> psCutMesh_FNormals;
-// Corner indices
-std::vector<glm::vec3> psCutMesh_corners;
-// Projection vectors
-std::vector<glm::vec3> psCutMesh_projVecs;
-
 
 // VARIABLES FOR PARSING AND WRITING FILES
 std::string InputPath;
 std::string OutputPath;
 std::string CurvenetPath;
+std::string CageMeshPath;
 bool loadedCurvenet = false;
+// True if a cage mesh OBJ was given on the command line; false means curvenet-cage mode
+bool meshCageMode = false;
 
 // UI HELPERS
-bool PM_init = false;
-bool CM_init = false;
+bool CD_init = false;
 
 bool disable_psCN = false;
-bool disable_PM = false;
+
+// Real-time dragging updates either positions or debug colors/gradients, never both at once
+bool colorMode = false;
+bool debugColorsVisible = true;
 
 bool createCtrlMode = false;  // Allows users to place control points
 bool createSplineMode = false;  // Allow users to initialize new splines
 
-bool editCtrlMode = false;   // Allows users to modify controls
-bool editTanMode = false;   // Allows users to modify tangents
+bool editCtrlMode = false;   // Allows users to modify controls / cage points
+bool editTanMode = false;   // Allows users to modify tangents (curvenet mode only)
 
 bool delCtrlMode = false;   // Allows users to remove control points
 bool delSplineMode = false;  // Allows users to remove splines
-
-bool weightMode = false;
 
 // Spline creation/removal helpers
 int selectedIdx = -1;    // Index of selected vertex on mesh
@@ -112,21 +101,33 @@ std::pair<int, int> selectedPair = {-1, -1};
 
 // Editing helpers
 bool tanConstraint = true;  // Constrain tangent movement to tangent plane only
-bool applyARAP = false; // Whether the curvenetwork should apply arap or not
 
 // Gizmo helpers
 bool activeGizmo = false; // This tells us if there is an active gizmo
 Eigen::Vector3d gizmoPos;
 static polyscope::TransformationGizmo* vertexGizmo = nullptr;
 
-// Weights
-double activeWeight = 1.0;
-
 // Pre-computation
-int samplingParam = 5;
+int samplingParam = 5;    // Curvenet discretization density (alpha)
+int num_samples = 20;     // WoS samples per query point
+float offsetParam = 0.5f; // Surface offset applied to newly-created controls
 
 // Discrete curvenet for modeling
 std::unique_ptr<psCurvenet::pscurvenet> psCN = nullptr; // Curvenet that polyscope will use for updates
+
+// Cage Deformer
+std::unique_ptr<Mesh::mesh> CD_Mesh = nullptr;         // Query mesh
+std::unique_ptr<Mesh::mesh> CageMesh = nullptr;        // Cage mesh (mesh-cage mode only)
+std::unique_ptr<Curvenet::curvenet> CD_CN = nullptr;   // Curvenet-cage mode only
+std::unique_ptr<Cage::cage> CD_Cage = nullptr;         // Either a curvenetcage or a meshcage
+std::unique_ptr<Query::meshquery> CD_Query = nullptr;
+std::unique_ptr<CageDeformer::cagedeformer> CD = nullptr;
+
+// Debug color/gradient quantity handles; nulled in resetMesh() when the structure is dropped
+polyscope::SurfaceVertexColorQuantity* psColorQ = nullptr;
+polyscope::SurfaceVertexVectorQuantity* psGradRQ = nullptr;
+polyscope::SurfaceVertexVectorQuantity* psGradGQ = nullptr;
+polyscope::SurfaceVertexVectorQuantity* psGradBQ = nullptr;
 
 
 // ----------------- FUNCTIONS BEGIN HERE -------------------------
@@ -152,6 +153,16 @@ int saveCurvenet() {
     }
 
     return success;
+}
+
+// Prints a rejection message and returns true if the caller should stop, since this
+// action needs an actual curvenet and we're in mesh-cage mode
+bool rejectMeshCage(const std::string& reason) {
+    if (!meshCageMode) {
+        return false;
+    }
+    std::cout << "Using mesh cage mode. " << reason << std::endl;
+    return true;
 }
 
 // Creates gizmo at vertex
@@ -194,7 +205,7 @@ void addGizmoAtLocation(Eigen::Vector3d& startpos, Eigen::Vector3d& ax1, Eigen::
     return;
 }
 
-// Removes gizmo 
+// Removes gizmo
 void removeGizmo() {
     if (!activeGizmo) return;
 
@@ -221,6 +232,7 @@ void removeAllCurvenetPS() {
     if (psControlsPC) {
         psControlsPC->remove();
         psControlsPC = nullptr;
+        psCageColorQ = nullptr;
     }
 
     if (psTangentsPC) {
@@ -230,7 +242,98 @@ void removeAllCurvenetPS() {
     return;
 }
 
-void updateProfileMover(bool recompute = true) {
+// Update the mesh vertex positions
+void updateMesh(const std::vector<Eigen::Vector3d>& new_pos) {
+    // Convert to matrix form
+    if (new_pos.size() != psMesh_V.rows()) {
+        std::cout << "Invalid mesh update size: New pos has size " << new_pos.size() << " but mesh has size " << psMesh_V.rows() << std::endl;
+        return;
+    }
+    for (int v = 0; v < psMesh_V.rows(); v++) {
+        psMesh_V.row(v) = new_pos[v].transpose();
+    }
+    // Update mesh
+    psMesh->updateVertexPositions(psMesh_V);
+    return;
+}
+
+void setDebugColorsVisible(bool visible) {
+    debugColorsVisible = visible;
+    if (psColorQ) psColorQ->setEnabled(debugColorsVisible);
+    if (psGradRQ) psGradRQ->setEnabled(debugColorsVisible);
+    if (psGradGQ) psGradGQ->setEnabled(debugColorsVisible);
+    if (psGradBQ) psGradBQ->setEnabled(debugColorsVisible);
+    if (psCageColorQ) psCageColorQ->setEnabled(debugColorsVisible);
+    return;
+}
+
+// Deformation mode: recompute mesh positions
+void updateCageDeformerPositions(bool recompute = true) {
+    if (!CD_init || !CD) {
+        return;
+    }
+    if (recompute) {
+        if (!meshCageMode) {
+            std::vector<Eigen::Vector3d> controlsV, tangentsV;
+            std::vector<std::array<int, 4>> splines;
+            psCN->cnAsStdVector(controlsV, tangentsV, splines);
+            CD_CN->updateCurveNet(controlsV, tangentsV);
+        }
+
+        Eigen::MatrixXd new_pos;
+        if (CD->applyDeformation(new_pos) == 1) {
+            std::vector<Eigen::Vector3d> new_pos_v;
+            Utils::EigM3toStdV(new_pos, new_pos_v);
+            updateMesh(new_pos_v);
+        }
+    }
+    return;
+}
+
+// Color mode: recompute debug colors/gradients only
+void updateCageDeformerColors(bool recompute = true) {
+    if (!CD_init || !CD) {
+        return;
+    }
+    if (recompute) {
+        if (!meshCageMode) {
+            std::vector<Eigen::Vector3d> controlsV, tangentsV;
+            std::vector<std::array<int, 4>> splines;
+            psCN->cnAsStdVector(controlsV, tangentsV, splines);
+            CD_CN->updateCurveNet(controlsV, tangentsV);
+        }
+
+        std::vector<glm::vec3> colors;
+        if (CD->colorsPolyscopeFormat(colors) == 1) {
+            psColorQ = psMesh->addVertexColorQuantity("Stochastic Colors", colors);
+        } else {
+            std::cout << "Failed to compute debug colors." << std::endl;
+        }
+        std::vector<glm::vec3> gradR, gradG, gradB;
+        if (CD->colorGradientsPolyscopeFormat(gradR, gradG, gradB) == 1) {
+            psGradRQ = psMesh->addVertexVectorQuantity("Color Gradient R", gradR);
+            psGradRQ->setVectorColor(glm::vec3{1.0f, 0.0f, 0.0f});
+            psGradGQ = psMesh->addVertexVectorQuantity("Color Gradient G", gradG);
+            psGradGQ->setVectorColor(glm::vec3{0.0f, 1.0f, 0.0f});
+            psGradBQ = psMesh->addVertexVectorQuantity("Color Gradient B", gradB);
+            psGradBQ->setVectorColor(glm::vec3{0.0f, 0.0f, 1.0f});
+        } else {
+            std::cout << "Failed to compute debug color gradients." << std::endl;
+        }
+        // Cage's own colors, for comparison. Curvenet cages give colors for controls+tangents;
+        // the point cloud only shows controls, so take the leading slice
+        std::vector<glm::vec3> cageColors;
+        int numPts = static_cast<int>(psControls_P.rows());
+        if (psControlsPC && CD->cageColorsPolyscopeFormat(cageColors) == 1 && static_cast<int>(cageColors.size()) >= numPts) {
+            std::vector<glm::vec3> ptColors(cageColors.begin(), cageColors.begin() + numPts);
+            psCageColorQ = psControlsPC->addColorQuantity("Cage Colors", ptColors);
+        } else {
+            std::cout << "Failed to compute cage debug colors." << std::endl;
+        }
+        // Re-registering may reset enabled state; re-apply it
+        setDebugColorsVisible(debugColorsVisible);
+    }
+    return;
 }
 
 // Update the curvenet object
@@ -293,35 +396,73 @@ void updateCurvenet(bool conn = false) {
     return;
 }
 
+// Mesh-cage mode's analog of updateCurvenet: shows the cage as a wireframe (psEditableCN)
+// + point cloud (psControlsPC), sharing the same polyscope objects curvenet mode uses.
+// Topology is fixed (loaded once from OBJ), so this only ever moves positions.
+void updateCageMeshViz(bool conn = false) {
+    if (conn) {
+        removeAllCurvenetPS();
+        psEditableCN = polyscope::registerCurveNetwork("Cage Wireframe", psControls_P, psCageWireframe_E);
+        psEditableCN->setColor({0.0f, 0.0f, 1.0f});
+        psEditableCN->setMaterial("flat");
+        psEditableCN->setTransparency(0.65);
+        psEditableCN->setRadius(0.003);
+        psEditableCN->setEnabled(true);
+
+        psControlsPC = polyscope::registerPointCloud("Cage Points", psControls_P);
+        psControlsPC->setPointColor({0.9f, 0.2f, 0.1f});
+        psControlsPC->setMaterial("flat");
+        psControlsPC->setPointRadius(0.02);
+        psControlsPC->setEnabled(true);
+    } else {
+        if (psEditableCN) {
+            psEditableCN->updateNodePositions(psControls_P);
+        }
+        if (psControlsPC) {
+            psControlsPC->updatePointPositions(psControls_P);
+        }
+    }
+    return;
+}
+
 void resetMesh() {
     if (!IO::readOBJ(InputPath, psMesh_V, psMesh_F)) {
         return;
     }
     psMesh = polyscope::registerSurfaceMesh("Surface Mesh", psMesh_V, psMesh_F);
     psMesh->setSurfaceColor({0.6f, 0.6f, 0.6f});
+    // Old quantity handles would dangle otherwise
+    psColorQ = nullptr;
+    psGradRQ = nullptr;
+    psGradGQ = nullptr;
+    psGradBQ = nullptr;
     return;
 }
 
-// Update the mesh vertex positions
-void updateMesh(const std::vector<Eigen::Vector3d>& new_pos) {
-    // Convert to matrix form
-    if (new_pos.size() != psMesh_V.rows()) {
-        std::cout << "Invalid mesh update size: New pos has size " << new_pos.size() << " but mesh has size " << psMesh_V.rows() << std::endl;
-        return;
-    }
-    for (int v = 0; v < psMesh_V.rows(); v++) {
-        psMesh_V.row(v) = new_pos[v].transpose();
-    }
-    // Update mesh
-    psMesh->updateVertexPositions(psMesh_V);
-    return;
-}
-// Reset all control positions in Polyscope
-void resetCurvenet() {
+void clearCD() {
+    CD_init = false;
+    CD = nullptr;
+    CD_Cage = nullptr;
+    CD_Query = nullptr;
+    CD_CN = nullptr;
     return;
 }
 
-void clearPM() {
+// Shared tail of "Compute CageDeformer": assumes CD_Cage is already set
+void finalizeCageDeformer() {
+    CD_Query = std::make_unique<Query::meshquery>(CD_Mesh.get());
+    CD = std::make_unique<CageDeformer::cagedeformer>();
+    CD->applyCage(CD_Cage.get());
+    CD->applyQuery(CD_Query.get());
+    int success = CD->computeCoordinates(0, num_samples);
+    if (success != 1) {
+        std::cout << "Failed to compute stochastic barycentric coordinates." << std::endl;
+        clearCD();
+    } else {
+        CD_init = true;
+        updateCageDeformerColors(true);
+    }
+    return;
 }
 
 void disableCurvenet() {
@@ -330,7 +471,7 @@ void disableCurvenet() {
         std::cout << "No curvenet object to enable/disable." << std::endl;
         return;
     }
-    
+
     if (disable_psCN) {
         if (psTangentsCN) {
             psTangentsCN->setEnabled(false);
@@ -361,8 +502,6 @@ void disableCurvenet() {
         disable_psCN = true;
     }
 }
-void disablePM() {
-}
 // clear all modes and their variables except for the specified mode
 int clearModes() {
     createCtrlMode = false;
@@ -371,24 +510,13 @@ int clearModes() {
     editTanMode = false;
     delCtrlMode = false;
     delSplineMode = false;
-    weightMode = false;
-    
+
     removeGizmo();
 
     selectedIdx = -1;
     gizmoPos = Eigen::Vector3d::Zero();
 
     selectedPair = {-1, -1};
-    return 1;
-}
-
-// Performs call to surface deformation and updates PS mesh
-int computeDeformation() {
-    std::vector<Eigen::Vector3d> controlsV, tangentsV;
-    std::vector<std::array<int, 4>> splines;
-    psCN->cnAsStdVector(controlsV, tangentsV, splines);
-    // Update the dCN
-    updateProfileMover(true);
     return 1;
 }
 
@@ -411,151 +539,91 @@ void myCallback() {
 
     polyscope::PickResult pick = polyscope::pickAtScreenCoords(screen);
 
-    ImGuiSection("Profile Mover Initialization");
-    // Pre-compute cut-mesh and operators
-    if (ImGui::Button("Recompute Profile Mover")) {
+    ImGuiSection("Cage Deformer Initialization");
+    // Pre-compute the cage, query, and stochastic barycentric coordinates
+    if (ImGui::Button("Compute CageDeformer")) {
         clearModes();
-        PM_init = false;
-        if (psControls_P.rows() <= 1) {
+        if (meshCageMode) {
+            clearCD();
+            // Rebuild fresh from the current (possibly drag-edited) point cloud, so the
+            // BVH and all derived mesh data reflect the latest positions
+            std::vector<Eigen::Vector3d> cageV;
+            Utils::EigM3toStdV(psControls_P, cageV);
+            CageMesh = std::make_unique<Mesh::mesh>(cageV, psCageMesh_F);
+            CD_Cage = std::make_unique<Cage::meshcage>(CageMesh.get());
+            finalizeCageDeformer();
+        } else if (psControls_P.rows() <= 1) {
             std::cout << "No splines specified. Add one or more splines." << std::endl;
         } else {
             // Compress the curvenet
             psCN->cleanupControls();
             saveCurvenet();
-            clearPM();
+            clearCD();
             updateCurvenet();
-            // Convert to input format
-            std::vector<Eigen::Vector3d> meshV;
-            Utils::EigM3toStdV(psMesh_V, meshV);
             std::vector<Eigen::Vector3d> controlsV, tangentsV;
             std::vector<std::array<int, 4>> splines;
             psCN->cnAsStdVector(controlsV, tangentsV, splines);
-            // Apply mesh and curvenet
-            PM = std::make_unique<ProfileMover::profilemover>(meshV, psMesh_F, controlsV, tangentsV, splines, samplingParam, applyARAP);
-            PM_init = true;
-            updateProfileMover(false);
-            // For easy of debugging, remove all the extra stuff
-            //psEditableCN->setEnabled(false);
-            //psMesh->setEnabled(false);
-            //psTangentsCN->setEnabled(false);
-            //psControlsPC->setEnabled(false);
-            //psTangentsPC->setEnabled(false);
-            psDCN->setEnabled(false);
-            psCutMesh->setEnabled(false);
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Checkbox("ARAP", &applyARAP)) {
-        if (PM_init && PM) {
-            PM->toggleARAP(applyARAP);
+            CD_CN = std::make_unique<Curvenet::curvenet>(controlsV, tangentsV, splines, CD_Mesh.get(), samplingParam);
+            CD_Cage = std::make_unique<Cage::curvenetcage>(CD_CN.get());
+            finalizeCageDeformer();
         }
     }
 
-    // Deformation stuff
-    // TODO: In the future, make this mode automatic after running precomp
-    /*
-    if (ImGui::Button("Deformation Mode")) {
-        clearModes();
-        if (!PM_init) {
-            std::cout << "Perform pre-computation before applying deformation." << std::endl;
-        } else {
-            //std::cout << "Computing Deformation." << std::endl;
-            computeDeformation();
-            updateProfileMover();
-        }
-    }*/
-
-    // User parameter for sampling the spline
+    // User parameters
     ImGui::SliderInt("Sampling Param", &samplingParam, 2, 8);
+    ImGui::SliderInt("Num Samples", &num_samples, 5, 50);
+    num_samples = std::clamp(((num_samples + 2) / 5) * 5, 5, 50);
 
-    ImGuiSection("Vertex Weights");
-    // Weighting vertices
-    if (ImGui::Button(weightMode ? "Stop Weighting" : "Select Weight")) {
-        bool tempMode = weightMode;
-        clearModes();
-        weightMode = !tempMode;
+    if (ImGui::Button(colorMode ? "Switch to Deformation Mode" : "Switch to Color Mode")) {
+        colorMode = !colorMode;
     }
     ImGui::SameLine();
-    if (ImGui::Button("Reset Weights")) {
-        if (PM_init && PM) {
-            PM->clearWeights();
-        }
-    }
-    ImGui::InputDouble("Vertex Weight", &activeWeight, 0.0, 1.0, "%.2f");
-    if (ImGui::Button("Apply Weight")) {
-        if (!weightMode) {
-            std::cout << "Weight mode not selected." << std::endl;
-        } else if (!PM_init) {
-            std::cout << "Profile Mover not created." << std::endl;
-        } else if (selectedIdx == -1) {
-            std::cout << "No vertex selected."  << std::endl;
-        } else {
-            PM->assignWeight(selectedIdx, true, activeWeight);
-            std::cout << "Applied weight " << activeWeight << " to vertex " << selectedIdx << std::endl;
-            // Update viz
-            updateProfileMover(false);
-        }
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Make Free")) {
-        if (!weightMode) {
-            std::cout << "Weight mode not selected." << std::endl;
-        } else if (!PM_init) {
-            std::cout << "Profile Mover not created." << std::endl;
-        } else if (selectedIdx == -1) {
-            std::cout << "No vertex selected."  << std::endl;
-        } else {
-            PM->assignWeight(selectedIdx, false);
-            std::cout << "Vertex " << selectedIdx << " assigned as free" << std::endl;
-            // Update viz
-            updateProfileMover(false);
-        }
-    }
-
-    if (weightMode && mouseClicked) {
-        if (pick.isHit && pick.structure == psControlsPC) {
-            polyscope::PointCloudPickResult pcPick = psControlsPC->interpretPickResult(pick);
-            selectedIdx = static_cast<int>(pcPick.index);
-            std::cout << "Selected Control " << selectedIdx << std::endl;
-        }
+    ImGui::TextUnformatted(colorMode ? "(dragging updates: colors)" : "(dragging updates: positions)");
+    if (ImGui::Button(debugColorsVisible ? "Hide Debug Colors" : "Show Debug Colors")) {
+        setDebugColorsVisible(!debugColorsVisible);
     }
 
     ImGuiSection("Saving and Viewing");
-    // Save the current curvenet state
-    if (ImGui::Button("Save Curvenet")) {
-        clearModes();
-        saveCurvenet();
+    if (!meshCageMode) {
+        // Save the current curvenet state
+        if (ImGui::Button("Save Curvenet")) {
+            clearModes();
+            saveCurvenet();
+        }
+        ImGui::SameLine();
     }
-    ImGui::SameLine();
     if (ImGui::Button("Save Mesh")) {   // TODO
         clearModes();
     }
-    if (ImGui::Button(disable_psCN ? "Disable Curvenet" : "Enable Curvenet")) {
-        disableCurvenet();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button(disable_PM ? "Disable Profile Mover" : "Enable Profile Mover")) {
-        disablePM();
+    if (!meshCageMode) {
+        if (ImGui::Button(disable_psCN ? "Disable Curvenet" : "Enable Curvenet")) {
+            disableCurvenet();
+        }
     }
 
     ImGuiSection("Create and Edit Splines");
+    ImGui::SliderFloat("Offset", &offsetParam, 0.1f, 1.0f);
     // CONTROL/SPLINE CREATION
     // Create controls
     if (ImGui::Button(createCtrlMode ? "Stop Creating Controls" : "Create Controls")) {
-        bool tempMode = createCtrlMode;
-        clearModes();
-        createCtrlMode = !tempMode;
+        if (!rejectMeshCage("Cannot create curvenet.")) {
+            bool tempMode = createCtrlMode;
+            clearModes();
+            createCtrlMode = !tempMode;
+        }
     }
     ImGui::SameLine();
     // Move a curvenet vertex
     if (ImGui::Button(createSplineMode ? "Stop Creating Splines" : "Create Splines")) {
-        bool tempMode = createSplineMode;
-        clearModes();
-        createSplineMode = !tempMode;
+        if (!rejectMeshCage("Cannot create curvenet.")) {
+            bool tempMode = createSplineMode;
+            clearModes();
+            createSplineMode = !tempMode;
+        }
     }
 
 
-    // CONTROL/TANGENT EDITING
+    // CONTROL/TANGENT EDITING (Move Control is shared between curvenet controls and cage points)
     if (ImGui::Button(editCtrlMode ? "Stop Moving Control" : "Move Control")) {
         bool tempMode = editCtrlMode;
         clearModes();
@@ -568,13 +636,15 @@ void myCallback() {
     }
     ImGui::SameLine();
     if (ImGui::Button(editTanMode ? "Stop Moving Splines" : "Move Splines")) {
-        bool tempMode = editTanMode;
-        clearModes();
-        if (psTangents_P.rows() == 0) {
-            std::cout << "Cannot edit. No existing splines." << std::endl;
-            editTanMode = !tempMode;
-        } else if (tempMode == false) {
-            editTanMode = true;
+        if (!rejectMeshCage("No tangents to modify.")) {
+            bool tempMode = editTanMode;
+            clearModes();
+            if (psTangents_P.rows() == 0) {
+                std::cout << "Cannot edit. No existing splines." << std::endl;
+                editTanMode = !tempMode;
+            } else if (tempMode == false) {
+                editTanMode = true;
+            }
         }
     }
     ImGui::SameLine();
@@ -582,27 +652,31 @@ void myCallback() {
 
     // CONTROL/SPLINE DELETION
     if (ImGui::Button(delCtrlMode ? "Stop Removing Controls" : "Remove Controls")) {
-        bool tempMode = delCtrlMode;
-        clearModes();
-        if (psControls_P.rows() == 0) {
-            std::cout << "Cannot delete. No existing controls." << std::endl;
-            delCtrlMode = false;
-        } else if (tempMode == false) {
-            delCtrlMode = true;
+        if (!rejectMeshCage("Cannot create curvenet.")) {
+            bool tempMode = delCtrlMode;
+            clearModes();
+            if (psControls_P.rows() == 0) {
+                std::cout << "Cannot delete. No existing controls." << std::endl;
+                delCtrlMode = false;
+            } else if (tempMode == false) {
+                delCtrlMode = true;
+            }
         }
     }
     ImGui::SameLine();
     if (ImGui::Button(delSplineMode ? "Stop Removing Splines" : "Remove Splines")) {
-        bool tempMode = delSplineMode;
-        clearModes();
-        if (psTangents_P.rows() == 0) {
-            std::cout << "Cannot delete. No existing splines." << std::endl;
-            delSplineMode = !tempMode;
-        } else if (tempMode == false) {
-            delSplineMode = true;
+        if (!rejectMeshCage("Cannot create curvenet.")) {
+            bool tempMode = delSplineMode;
+            clearModes();
+            if (psTangents_P.rows() == 0) {
+                std::cout << "Cannot delete. No existing splines." << std::endl;
+                delSplineMode = !tempMode;
+            } else if (tempMode == false) {
+                delSplineMode = true;
+            }
         }
     }
-    
+
 
     ImGuiSection("Resets");
     // RESETs
@@ -611,25 +685,25 @@ void myCallback() {
         removeGizmo();
         selectedIdx = -1;
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Clear Curvenet")) {
-        std::cout << "Clearing entire curvenet." << std::endl;
-        psCN->resetCurvenet();
-        std::cout << "Clearing profilemover object." << std::endl;
-        clearPM();
-        updateCurvenet(true);
-        updateProfileMover(true);
-        clearModes();
-        // Reset mesh
-        std::cout << "Resetting mesh." << std::endl;
-        resetMesh();
-        psMesh->setEnabled(true);
+    if (!meshCageMode) {
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Curvenet")) {
+            std::cout << "Clearing entire curvenet." << std::endl;
+            psCN->resetCurvenet();
+            std::cout << "Clearing cage deformer object." << std::endl;
+            clearCD();
+            updateCurvenet(true);
+            clearModes();
+            // Reset mesh
+            std::cout << "Resetting mesh." << std::endl;
+            resetMesh();
+            psMesh->setEnabled(true);
+        }
     }
     // May need to store a copy of the rest curvenet
-    if (ImGui::Button("Clear Profile Mover")) {
-        std::cout << "Clearing profile mover." << std::endl;
-        clearPM();
-        updateProfileMover(true);
+    if (ImGui::Button("Clear CageDeformer")) {
+        std::cout << "Clearing cage deformer." << std::endl;
+        clearCD();
         resetMesh();
         clearModes();
     }
@@ -644,13 +718,12 @@ void myCallback() {
 
             // TODO: Switch to a different version for non-triangle meshes
             Eigen::Vector3d proj;
-            Mesh::vertProjData vProjData = PM_Mesh->computeVProjection(pos, proj);
+            Mesh::vertProjData vProjData = CD_Mesh->computeVProjection(pos, proj);
             if (vProjData.elIdx != -1 && vProjData.elType != -1) {
-                Eigen::Vector3d normal = PM_Mesh->getNormal(vProjData);
-                psCN->addControl(pos, normal);
-                clearPM();
+                Eigen::Vector3d normal = CD_Mesh->getNormal(vProjData);
+                psCN->addControl(pos, normal, static_cast<double>(offsetParam));
+                clearCD();
                 updateCurvenet(true);
-                updateProfileMover(true);
                 std::cout << "New Vert created at (" << pos[0] << ", " << pos[1] << ", " << pos[2] << ")" << std::endl;
             } else {
                 std::cout << "No valid point picked." << std::endl;
@@ -677,9 +750,8 @@ void myCallback() {
                 // Reset pair
                 selectedPair = {-1, -1};
                 std::cout << "New Spline Created.\n" << std::endl;
-                clearPM();
+                clearCD();
                 updateCurvenet(true);
-                updateProfileMover(true);
             }
         }
     }
@@ -691,9 +763,8 @@ void myCallback() {
 
         psCN->removeControl(static_cast<int>(pcPick.index));
         std::cout << "Control removed." << std::endl;
-        clearPM();
+        clearCD();
         updateCurvenet(true);
-        updateProfileMover(true);
     }
     // Clicked on a tangent whose spline we should remove
     if (delSplineMode && mouseClicked && pick.isHit && pick.structure == psTangentsPC) {
@@ -701,13 +772,12 @@ void myCallback() {
 
         psCN->removeSplineByTangent(static_cast<int>(pcPick.index));
         std::cout << "Spline removed." << std::endl;
-        clearPM();
+        clearCD();
         updateCurvenet(true);
-        updateProfileMover(true);
     }
 
     // EDIT MODE CLICKS
-    // Select control to edit
+    // Select control / cage point to edit
     if (editCtrlMode && mouseClicked) {
         if (pick.isHit && pick.structure == psControlsPC) {
             polyscope::PointCloudPickResult pcPick = psControlsPC->interpretPickResult(pick);
@@ -715,7 +785,7 @@ void myCallback() {
             selectedIdx = static_cast<int>(pcPick.index);
             // Build a basis
             Eigen::Vector3d selectedPos = psControls_P.row(selectedIdx).transpose();
-            Eigen::Vector3d selectedN = psCN->getNormal(selectedIdx);
+            Eigen::Vector3d selectedN = meshCageMode ? CageMesh->getVNormal(selectedIdx) : psCN->getNormal(selectedIdx);
             Eigen::Vector3d t0, t1;
             Utils::buildPlaneBasis(selectedN, t0, t1);
             std::cout << "Editing Vert at (" << selectedPos[0] << ", " << selectedPos[1] << ", " << selectedPos[2] << ")" << std::endl;
@@ -726,7 +796,7 @@ void myCallback() {
             editCtrlMode = true;
         }
     }
-    // Select tangent to edit
+    // Select tangent to edit (curvenet mode only; button rejects in mesh-cage mode)
     if (editTanMode && mouseClicked) {
         if (pick.isHit && pick.structure == psTangentsPC) {
             // Index into tangent list. Get associated spline by integer dividing by 2.
@@ -744,30 +814,43 @@ void myCallback() {
         }
     }
 
-    // Update control position per-frame
+    // Update control / cage point position per-frame
     if (editCtrlMode && activeGizmo && selectedIdx >= 0) {
         // Get the gizmo's location at this frame
         Eigen::Vector3d gizmoPosF = Utils::glmToEigen(vertexGizmo->getPosition());
-        glm::mat4 T = vertexGizmo->getTransform();
-        Eigen::Vector3d gizmoNormal = Utils::glmToEigen(glm::normalize(glm::vec3(T[0])));
-        Eigen::Vector3d gizmoBN = Utils::glmToEigen(glm::normalize(glm::vec3(T[1])));
 
-        psCN->updateControlPos(selectedIdx, gizmoPosF, false);
-        psCN->updateControlNormal(selectedIdx, gizmoNormal, true, false);
-        // Update the associate tangent point in the curvenet
-        vertexGizmo->setPosition(Utils::eigenToGLM(gizmoPosF));
+        if (meshCageMode) {
+            psControls_P.row(selectedIdx) = gizmoPosF.transpose();
+            CageMesh->setVertPos(selectedIdx, gizmoPosF);
+            vertexGizmo->setPosition(Utils::eigenToGLM(gizmoPosF));
+            updateCageMeshViz();
+        } else {
+            glm::mat4 T = vertexGizmo->getTransform();
+            Eigen::Vector3d gizmoNormal = Utils::glmToEigen(glm::normalize(glm::vec3(T[0])));
+            psCN->updateControlPos(selectedIdx, gizmoPosF, false);
+            psCN->updateControlNormal(selectedIdx, gizmoNormal, true, false);
+            vertexGizmo->setPosition(Utils::eigenToGLM(gizmoPosF));
+            updateCurvenet();
+        }
 
-        updateCurvenet();
-        updateProfileMover(true);
+        if (colorMode) {
+            updateCageDeformerColors(true);
+        } else {
+            updateCageDeformerPositions(true);
+        }
     }
-    // Update tangent position per-frame
+    // Update tangent position per-frame (curvenet mode only)
     if (editTanMode && activeGizmo && selectedIdx >= 0) {
         // Get the gizmo's location at this frame
         Eigen::Vector3d gizmoPosF = Utils::glmToEigen(vertexGizmo->getPosition());
         // If we are too close to either endpoint, do not update
         bool updated = psCN->updateTangentPos(selectedIdx, gizmoPosF, tanConstraint);
         updateCurvenet();
-        updateProfileMover(true);
+        if (colorMode) {
+            updateCageDeformerColors(true);
+        } else {
+            updateCageDeformerPositions(true);
+        }
         if (updated) {
             Eigen::Vector3d tangentPos = psTangents_P.row(selectedIdx).transpose();
             vertexGizmo->setPosition(Utils::eigenToGLM(tangentPos));
@@ -777,15 +860,32 @@ void myCallback() {
     return;
 }
 
+// Case-insensitive check for a path's extension
+bool hasExtension(const std::string& path, const std::string& ext) {
+    if (path.size() < ext.size()) {
+        return false;
+    }
+    std::string suffix = path.substr(path.size() - ext.size());
+    std::transform(suffix.begin(), suffix.end(), suffix.begin(), [](unsigned char c) { return std::tolower(c); });
+    return suffix == ext;
+}
+
 int main(int argc, char **argv) {
     if (argc < 3) {
         std::cout << "Too few arguments.\n"
-                  << "Usage: ./profile_mover <input OBJ file path> <output .curvenet path> [--load <input .curvenet path>]"
+                  << "Usage: ./stochastic_bc <query mesh OBJ> <cage mesh OBJ>\n"
+                  << "   or: ./stochastic_bc <query mesh OBJ> <curvenet output path> [--load <curvenet path>]"
                   << std::endl;
         return 1;
     }
     InputPath = argv[1];
-    OutputPath = argv[2];
+    std::string arg2 = argv[2];
+    meshCageMode = hasExtension(arg2, ".obj");
+    if (meshCageMode) {
+        CageMeshPath = arg2;
+    } else {
+        OutputPath = arg2;
+    }
     for (int i = 3; i < argc; i++) {
         std::string arg = argv[i];
 
@@ -794,12 +894,15 @@ int main(int argc, char **argv) {
                 std::cout << "Missing path after --load." << std::endl;
                 return 1;
             }
-            CurvenetPath = argv[++i];
-            loadedCurvenet = true;
+            if (meshCageMode) {
+                std::cout << "--load is ignored when a cage mesh is provided." << std::endl;
+                i++;
+            } else {
+                CurvenetPath = argv[++i];
+                loadedCurvenet = true;
+            }
         } else {
             std::cout << "Unknown argument: " << arg << std::endl;
-            std::cout << "Usage: ./profile_mover <input OBJ file path> <output .curvenet path> [--load <input .curvenet path>]"
-                      << std::endl;
             return 1;
         }
     }
@@ -812,33 +915,34 @@ int main(int argc, char **argv) {
 
     polyscope::init();
 
-    // Set camera view
-    // polyscope::view::setUpDir(polyscope::UpDir::ZUp);      // Z up
-    // polyscope::view::setFrontDir(polyscope::FrontDir::NegYFront); // -Y forward
-
-    // Set projection to orthographic
-    // polyscope::view::setProjectionMode(polyscope::ProjectionMode::Orthographic);
-
-    // Load our mesh object
-    std::cout << "\nLoading surface mesh file" << std::endl;
+    // Load the query mesh
+    std::cout << "\nLoading query mesh file" << std::endl;
     if (!IO::readOBJ(InputPath, psMesh_V, psMesh_F)) {
-        std::cout << "Could not read input mesh" << std::endl;
+        std::cout << "Could not read query mesh" << std::endl;
         return -1;
     }
-
-    // Register mesh with PS
-    std::cout << "Registering Surface Mesh to Polyscope" << std::endl;
     psMesh = polyscope::registerSurfaceMesh("Surface Mesh", psMesh_V, psMesh_F);
     psMesh->setSurfaceColor({0.6f, 0.6f, 0.6f});
 
-    // Convert to input format
     std::vector<Eigen::Vector3d> meshV;
     Utils::EigM3toStdV(psMesh_V, meshV);
-    PM_Mesh = std::make_unique<Mesh::mesh>(meshV, psMesh_F);
+    CD_Mesh = std::make_unique<Mesh::mesh>(meshV, psMesh_F);
 
-    // Create polyscope's curvenet
     psCN = std::make_unique<psCurvenet::pscurvenet>();
-    if (loadedCurvenet) {
+
+    if (meshCageMode) {
+        std::cout << "Loading cage mesh file" << std::endl;
+        if (!IO::readOBJ(CageMeshPath, psControls_P, psCageMesh_F)) {
+            std::cout << "Could not read cage mesh" << std::endl;
+            return -1;
+        }
+        IO::facesToWireframe(psCageMesh_F, psCageWireframe_E);
+        updateCageMeshViz(true);
+
+        std::vector<Eigen::Vector3d> cageMeshV;
+        Utils::EigM3toStdV(psControls_P, cageMeshV);
+        CageMesh = std::make_unique<Mesh::mesh>(cageMeshV, psCageMesh_F);
+    } else if (loadedCurvenet) {
         int loadSuccess = psCN->loadCurvenet(CurvenetPath);
         if (loadSuccess == 1) {
             std::cout << "Loaded curvenet from: " << CurvenetPath << std::endl;

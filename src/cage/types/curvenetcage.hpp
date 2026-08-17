@@ -25,12 +25,18 @@ class curvenetcage : public cage {
 
         // Function for computing basis of mesh element
         virtual std::vector<std::pair<int, double>> computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) override;
+
+        // Debug colors: direction from the centroid of all controls+tangents, remapped to [0,1]
+        virtual int computeColors(Eigen::MatrixXd& Colors) override;
+
+        // Get bounding box diagonal length
+        virtual double bboxDiag() const override;
     protected:
 
     private:
         // Point to curvenet
         Curvenet::curvenet* CN;
-        Polynet::dcurvenet dCN:
+        Polynet::dcurvenet dCN;
 };
 
 }   // namespace Cage

@@ -42,6 +42,7 @@ namespace Curvenet {
         if (traceCurves() == -1) {
             throw std::runtime_error("Failed to trace curve network.");
         }
+        computeBBoxDiag();
         return;
     }
 
@@ -398,11 +399,12 @@ namespace Curvenet {
         Verts.resize(C.size() + HE.size(), 3);
 
         for (int c = 0; c < C.size(); c++) {
-            Verts.row(c) = C[c].pos.transpose();
+            Verts.row(c) = C[c].new_pos.transpose();
         }
         for (int t = 0; t < HE.size(); t++) {
-            Verts.row(t) = HE[t].tan.transpose();
+            Verts.row(C.size() + t) = HE[t].tan.transpose();
         }
+        return 1;
     }
 
     // Find the closest point on the curve network to p, via dCN's polyline BVH
@@ -421,16 +423,16 @@ namespace Curvenet {
     }
 
     // Newton iterations to refine an initial guess t-value to get true closest point
-    double curvenet::optimizeT(double t, int s, const Eigen::Vector3d& p, int max_iter) {
+    double curvenet::optimizeT(double t, int s, const Eigen::Vector3d& p, int max_iter) const {
         t = std::clamp(t, 0.0, 1.0);
         double curr_t = t;
-        for (int i = 0; i < max_iter, i++) {
+        for (int i = 0; i < max_iter; i++) {
             Eigen::Vector3d B = tSampleBezier(s, t);
             Eigen::Vector3d B_ = tBezier_first(s, t);
             Eigen::Vector3d B__ = tBezier_second(s, t);
-            double diff = B - p;
+            Eigen::Vector3d diff = B - p;
             double grad = diff.dot(B_);
-            double hessian = B__.squaredNorm() + diff.dot(B__);
+            double hessian = B_.squaredNorm() + diff.dot(B__);
 
             // refine t
             double dt = grad / hessian;
@@ -450,13 +452,14 @@ namespace Curvenet {
         }
         basis.clear();
         t = std::clamp(t, 0.0, 1.0);
+        const double eps = 1e-9;
         int t0 = S[s].he;
         int c0 = HE[t0].origin;
         int t1 = HE[t0].twin;
         int c1 = HE[t1].origin;
-        if (t == 0.0) { // Start of spline
+        if (t <= eps) { // Start of spline
             basis.push_back({c0, 1.0});
-        } else if (t == 1.0) {  // End of spline
+        } else if (t >= 1.0 - eps) {  // End of spline
             basis.push_back({c1, 1.0});
         } else {    // Somewhere in the middle
             basis.resize(4);
@@ -468,5 +471,32 @@ namespace Curvenet {
             basis[3] = {c1, std::pow(t, 3)};
         }
         return 1;
+    }
+
+    // Compute the length of the diagonal of the bounding box
+    void curvenet::computeBBoxDiag() {
+        bool found = false;
+        Eigen::Vector3d minV;
+        Eigen::Vector3d maxV;
+        for (int c = 0; c < C.size(); c++) {
+            if (!C[c].active) {
+                continue;
+            }
+            const Eigen::Vector3d& p = C[c].new_pos;
+            if (!found) {
+                minV = p;
+                maxV = p;
+                found = true;
+            } else {
+                minV = minV.cwiseMin(p);
+                maxV = maxV.cwiseMax(p);
+            }
+        }
+        bboxDiag = found ? (maxV - minV).norm() : 0.0;
+        return;
+    }
+
+    double curvenet::getBBoxDiag() const {
+        return bboxDiag;
     }
 }   // namespace Curvenet

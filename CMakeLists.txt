@@ -34,22 +34,22 @@ file(GLOB_RECURSE PROJECT_SOURCES CONFIGURE_DEPENDS
 
 list(REMOVE_ITEM PROJECT_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp")
 
-add_library(pm_core ${PROJECT_SOURCES})
-target_include_directories(pm_core PUBLIC
+add_library(cd_core ${PROJECT_SOURCES})
+target_include_directories(cd_core PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
 )
 
-target_link_libraries(pm_core PUBLIC
+target_link_libraries(cd_core PUBLIC
   Eigen3::Eigen
   polyscope
 )
 
 if(OpenMP_CXX_FOUND)
-  target_link_libraries(pm_core PUBLIC OpenMP::OpenMP_CXX)
-  target_compile_definitions(pm_core PUBLIC PM_USE_OPENMP=1)
+  target_link_libraries(cd_core PUBLIC OpenMP::OpenMP_CXX)
+  target_compile_definitions(cd_core PUBLIC PM_USE_OPENMP=1)
 else()
   message(WARNING "OpenMP not found. Building without OpenMP parallelism.")
 endif()
 
 add_executable(profile_mover src/main.cpp)
-target_link_libraries(profile_mover PRIVATE pm_core)
+target_link_libraries(profile_mover PRIVATE cd_core)

@@ -14,14 +14,20 @@ class cage {
         // Init using pointer to some object (generic)
         virtual ~cage() = default;
 
-        // TODO: Function for retrieving verices as a matrix
-        virtual int matrixVerts(Eigen::MatrixXd& Verts);
+        // Function for retrieving verices as a matrix
+        virtual int matrixVerts(Eigen::MatrixXd& Verts) = 0;
 
-        // TODO: Function for querying closest point
-        virtual int closestPoint(int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords);
+        // Function for querying closest point
+        virtual int closestPoint(const Eigen::Vector3d& p, int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords) = 0;
 
-        // TODO: Function for computing basis
-        virtual std::vector<std::pair<int, double>> computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords);
+        // Function for computing basis
+        virtual std::vector<std::pair<int, double>> computeBasis(const int& elType, const int& elIdx, const Eigen::VectorXd& coords) = 0;
+
+        // Debug colors, one row per cage vertex (same order as matrixVerts), values in [0,1]
+        virtual int computeColors(Eigen::MatrixXd& Colors) = 0;
+
+        // Get bounding box diagonal length
+        virtual double bboxDiag() const = 0;
     protected:
         // All inherited funcs are public
     private:

@@ -48,6 +48,7 @@ namespace Polynet {
         if (computeBVH() != 1) {
             throw std::runtime_error("Failed to build BVH.");
         }
+        computeBBoxDiag();
     }
 
     // empty initializer
@@ -209,15 +210,15 @@ namespace Polynet {
     int polynet::evaluateBasis(int elType, int elIdx, double t, std::vector<std::pair<int, double>>& basis) {
         basis.clear();
         if (elType == 0) {
-            if (elIdx > V.size() || elIdx < 0) {
+            if (elIdx < 0 || elIdx >= V.size()) {
                 return -1;
             }
             basis.push_back({elIdx, 1.0});
         } else if (elType == 1) {
-            if (elIdx < 0 || elIdx > E.size()) {
+            if (elIdx < 0 || elIdx >= E.size()) {
                 return -1;
             }
-            int he0 = E[elType].he;
+            int he0 = E[elIdx].he;
             int v1 = HE[he0].dest;
             int v0 = HE[HE[he0].twin].dest;
             basis.push_back({v0, 1.0 - t});
@@ -226,5 +227,32 @@ namespace Polynet {
             return -1;
         }
         return 1;
+    }
+
+    double polynet::getBBoxDiag() const {
+        return bboxDiag;
+    }
+
+    // Compute the length of the diagonal of the bounding box
+    void polynet::computeBBoxDiag() {
+        bool found = false;
+        Eigen::Vector3d minV;
+        Eigen::Vector3d maxV;
+        for (int v = 0; v < V.size(); v++) {
+            if (!V[v].active) {
+                continue;
+            }
+            const Eigen::Vector3d& p = V[v].new_pos;
+            if (!found) {
+                minV = p;
+                maxV = p;
+                found = true;
+            } else {
+                minV = minV.cwiseMin(p);
+                maxV = maxV.cwiseMax(p);
+            }
+        }
+        bboxDiag = found ? (maxV - minV).norm() : 0.0;
+        return;
     }
 }   // namespace Polynet

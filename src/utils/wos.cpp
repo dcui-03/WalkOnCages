@@ -2,7 +2,7 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include "cage/cage.hpp"
-#include <../mesh/mesh.hpp>
+#include "mesh/mesh.hpp"
 #include <vector>
 #include <random>
 #include <cmath>
@@ -11,38 +11,41 @@
 // Functions for Walk on Spheres sampling
 namespace WoS {
     // Regular Walk on Spheres given a point and a mesh boundary
-    int WalkOnSpheres(const Eigen::Vector3d& p, const Cage::cage* C, 
-                           int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords, 
-                           const int iter = 0, const int max_iter = 20, double eps = 1e-6) {
+    int WalkOnSpheres(const Eigen::Vector3d& p, const Cage::cage* C,
+                           int& elType, int& elIdx, Eigen::Vector3d& proj, Eigen::VectorXd& coords,
+                           std::mt19937& gen,
+                           const int iter, const int max_iter, double eps) {
         if (iter >= max_iter) {
             return -1;
         }
         // First, find the closest point and its coordinates
-        C->closestPoint(elType, elIdx, proj, coords);
+        if (C->closestPoint(p, elType, elIdx, proj, coords) != 1) {
+            return -1;
+        }
         // Compute the distance
-        double d = (bindData.proj - p).norm();
+        double d = (proj - p).norm();
         // If we are too close, terminate
         if (d <= eps) {
             return 1;
         }
         // Generate random sample
         Eigen::Vector3d newDirec;
-        generateNewDirection(newDirec);
+        generateNewDirection(newDirec, gen);
         // Compute the next sample
         Eigen::Vector3d p_next = p + d * newDirec;
         // Recurse
-        return WalkOnSpheres(p_next, C, elType, elIdx, proj, coords, iter+1, max_iter, eps);
+        return WalkOnSpheres(p_next, C, elType, elIdx, proj, coords, gen, iter+1, max_iter, eps);
     }
 
     // Generate a new random walk direction
-    int generateNewDirection(Eigen::Vector3d& newDirec) {
+    int generateNewDirection(Eigen::Vector3d& newDirec, std::mt19937& gen) {
         newDirec.setZero();
 
-        std::random_device rand;
-        std::mt19937 gen(rand());
-        std::uniform_real_distribution<double> theta(0.0, 2 * M_PI);
-        std::uniform_real_distribution<double> z(-1.0, 1.0);
-        double r = sqrt(pow(1 - z, 2));
+        std::uniform_real_distribution<double> theta_dist(0.0, 2 * M_PI);
+        std::uniform_real_distribution<double> z_dist(-1.0, 1.0);
+        double theta = theta_dist(gen);
+        double z = z_dist(gen);
+        double r = std::sqrt(std::max(0.0, 1.0 - z * z));
 
         newDirec = {r*std::cos(theta), r*std::sin(theta), z};
         return 1;

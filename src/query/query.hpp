@@ -14,13 +14,13 @@ class query {
         virtual ~query() = default;
 
         // Get relevant vertices as a matrix
-        virtual int matrixVerts(Eigen::MatrixXd& Verts);
+        virtual int matrixVerts(Eigen::MatrixXd& Verts) = 0;
 
         // Apply smoothing
-        int applySmoothing(const Eigen::VectorXd& Input, Eigen::VectorXd& Result);
+        virtual int applySmoothing(const Eigen::MatrixXd& Input, Eigen::MatrixXd& Result) = 0;
     protected:
         // Get a smoothing operator
-        virtual int computeSmoothingOp();
+        virtual int computeSmoothingOp() = 0;
 
         bool smoothAvailable = false;
     private:
